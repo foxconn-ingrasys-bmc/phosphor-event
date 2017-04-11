@@ -178,6 +178,10 @@ static int prop_message(sd_bus *bus,
 		p = rec->message;
 	} else if (!strncmp("severity", property, 8)) {
 		p = rec->severity;
+	} else if (!strncmp("sensor_type", property, 11)) {
+		p = rec->sensor_type;
+	} else if (!strncmp("sensor_number", property, 13)) {
+		p = rec->sensor_number;
 	} else if (!strncmp("reported_by", property, 11)) {
 		p = rec->reportedby;
 	} else if (!strncmp("time", property, 4)) {
@@ -238,14 +242,21 @@ static int accept_message(sd_bus_message *m,
 				      char *reportedby)
 {
 	char *message, *severity, *association;
-	size_t   n = 4;
+	char *sensor_type, *sensor_number;
+	size_t   n = 64; //length of raw data
 	uint8_t *p;
 	int r;
 	uint16_t logid;
 	event_record_t rec;
 	event_manager *em = (event_manager *) userdata;
 
-	r = sd_bus_message_read(m, "sss", &message, &severity, &association);
+	if(strcmp(reportedby, "BMC") == 0) {
+		r = sd_bus_message_read(m, "sssss", &severity, &message, &sensor_type, &sensor_number, &association);
+    }
+	else {
+        // XXX program may never come here due to SDBUS signature constraint
+		r = sd_bus_message_read(m, "sss", &message, &severity, &association);
+    }
 	if (r < 0) {
 		fprintf(stderr, "Error parsing strings: %s\n", 	strerror(-r));
 		return r;
@@ -259,6 +270,8 @@ static int accept_message(sd_bus_message *m,
 
 	rec.message     = (char*) message;
 	rec.severity    = (char*) severity;
+	rec.sensor_type		= (char*) sensor_type;
+	rec.sensor_number	= (char*) sensor_number;
 	rec.association = (char*) association;
 	rec.reportedby  = reportedby;
 	rec.p           = (uint8_t*) p;
@@ -350,6 +363,8 @@ static int method_clearall(sd_bus_message *m, void *userdata, sd_bus_error *ret_
 		}
 	}
 
+	message_reset_log_id(em);
+
 	return sd_bus_reply_method_return(m, "q", 0);
 }
 
@@ -368,7 +383,7 @@ static int method_deletelog(sd_bus_message *m, void *userdata, sd_bus_error *ret
 static const sd_bus_vtable recordlog_vtable[] = {
 	SD_BUS_VTABLE_START(0),
 	SD_BUS_METHOD("acceptHostMessage", "sssay", "q", method_accept_host_message, SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_METHOD("acceptBMCMessage", "sssay", "q", method_accept_bmc_message, SD_BUS_VTABLE_UNPRIVILEGED),
+	SD_BUS_METHOD("acceptBMCMessage", "sssssay", "q", method_accept_bmc_message, SD_BUS_VTABLE_UNPRIVILEGED),
 	SD_BUS_METHOD("acceptTestMessage", NULL, "q", method_accept_test_message, SD_BUS_VTABLE_UNPRIVILEGED),
 	SD_BUS_METHOD("clear", NULL, "q", method_clearall, SD_BUS_VTABLE_UNPRIVILEGED),
 	SD_BUS_VTABLE_END
@@ -378,6 +393,8 @@ static const sd_bus_vtable log_vtable[] = {
 	SD_BUS_VTABLE_START(0),   
 	SD_BUS_PROPERTY("message",     "s",  prop_message,    0, SD_BUS_VTABLE_PROPERTY_CONST),
 	SD_BUS_PROPERTY("severity",    "s",  prop_message,    0, SD_BUS_VTABLE_PROPERTY_CONST),
+	SD_BUS_PROPERTY("sensor_type", "s",  prop_message,    0, SD_BUS_VTABLE_PROPERTY_CONST),
+	SD_BUS_PROPERTY("sensor_number","s", prop_message,    0, SD_BUS_VTABLE_PROPERTY_CONST),
 	SD_BUS_PROPERTY("reported_by", "s",  prop_message,    0, SD_BUS_VTABLE_PROPERTY_CONST),
 	SD_BUS_PROPERTY("time",        "s",  prop_message,    0, SD_BUS_VTABLE_PROPERTY_CONST),
 	SD_BUS_PROPERTY("debug_data",  "ay", prop_message_dd ,0, SD_BUS_VTABLE_PROPERTY_CONST),

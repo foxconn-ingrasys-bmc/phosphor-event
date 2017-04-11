@@ -35,6 +35,12 @@ int message_delete_log(event_manager *em, uint16_t logid)
 	return em->remove(logid);
 }
 
+void message_reset_log_id(event_manager *em)
+{
+	em->reset_log_id();
+	return;
+}
+
 int load_existing_events(event_manager *em)
 {
 	uint16_t id;
@@ -79,7 +85,8 @@ int main(int argc, char *argv[])
 		}
 
 
-	cout << maxsize <<endl;
+	cout << "Max. size = " << maxsize << endl;
+	cout << "Max. logs = " << maxlogs << endl;
 	event_manager em(path_to_messages, maxsize, maxlogs);
 
 

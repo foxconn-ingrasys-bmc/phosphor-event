@@ -25,6 +25,8 @@ struct logheader_t {
 	uint16_t detailsoffset;
 	uint16_t messagelen;
 	uint16_t severitylen;
+	uint16_t sensor_type_len;
+	uint16_t sensor_number_len;
 	uint16_t associationlen;
 	uint16_t reportedbylen;
 	uint16_t debugdatalen;
@@ -118,6 +120,12 @@ uint16_t event_manager::latest_log_id(void)
 uint16_t event_manager::new_log_id(void)
 {
 	return ++latestid;
+}
+void event_manager::reset_log_id(void)
+{
+	latestid = 0; /* reset latest ID */
+
+	return;
 }
 void event_manager::next_log_refresh(void)
 {
@@ -247,6 +255,8 @@ uint16_t event_manager::create_log_event(event_record_t *rec)
 	hdr.detailsoffset  = offsetof(logheader_t, messagelen);
 	hdr.messagelen     = getlen(rec->message);
 	hdr.severitylen    = getlen(rec->severity);
+	hdr.sensor_type_len = getlen(rec->sensor_type);
+	hdr.sensor_number_len = getlen(rec->sensor_number);
 	hdr.associationlen = getlen(rec->association);
 	hdr.reportedbylen  = getlen(rec->reportedby);
 	hdr.debugdatalen   = rec->n;
@@ -254,6 +264,8 @@ uint16_t event_manager::create_log_event(event_record_t *rec)
 	event_size = sizeof(logheader_t) + \
 			hdr.messagelen     + \
 			hdr.severitylen    + \
+			hdr.sensor_type_len + \
+			hdr.sensor_number_len + \
 			hdr.associationlen + \
 			hdr.reportedbylen  + \
 			hdr.debugdatalen;
@@ -272,6 +284,8 @@ uint16_t event_manager::create_log_event(event_record_t *rec)
 		myfile.write((char*) &hdr, sizeof(hdr));
 		myfile.write((char*) rec->message, hdr.messagelen);
 		myfile.write((char*) rec->severity, hdr.severitylen);
+		myfile.write((char*) rec->sensor_type, hdr.sensor_type_len);
+		myfile.write((char*) rec->sensor_number, hdr.sensor_number_len);
 		myfile.write((char*) rec->association, hdr.associationlen);
 		myfile.write((char*) rec->reportedby, hdr.reportedbylen);
 		myfile.write((char*) rec->p, hdr.debugdatalen);
@@ -316,6 +330,12 @@ int event_manager::open(uint16_t logid, event_record_t **rec)
 	(*rec)->severity = new char[hdr.severitylen];
 	f.read((*rec)->severity, hdr.severitylen);
 
+	(*rec)->sensor_type = new char[hdr.sensor_type_len];
+	f.read((*rec)->sensor_type, hdr.sensor_type_len);
+
+	(*rec)->sensor_number = new char[hdr.sensor_number_len];
+	f.read((*rec)->sensor_number, hdr.sensor_number_len);
+
 	(*rec)->association = new char[hdr.associationlen];
 	f.read((*rec)->association, hdr.associationlen);
 
@@ -335,6 +355,8 @@ void event_manager::close(event_record_t *rec)
 {
 	delete[] rec->message;
 	delete[] rec->severity;
+	delete[] rec->sensor_type;
+	delete[] rec->sensor_number;
 	delete[] rec->association;
 	delete[] rec->reportedby;
 	delete[] rec->p;

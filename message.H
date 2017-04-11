@@ -18,6 +18,8 @@
 #endif
 		char *message;
 		char *severity;
+		char *sensor_type;
+		char *sensor_number;
 		char *association;
 		char *reportedby;
 		uint8_t *p;
@@ -62,6 +64,8 @@ public:
 	uint16_t create(event_record_t *rec);
 	int      remove(uint16_t logid);
 
+	void 	 reset_log_id(void);
+
 private:
 	bool is_file_a_log(string str);
 	uint16_t create_log_event(event_record_t *rec);
@@ -81,6 +85,7 @@ void     message_free_log(event_manager *em, event_record_t *rec);
 int      message_delete_log(event_manager *em, uint16_t logid);
 void     message_refresh_events(event_manager *em);
 uint16_t message_next_event(event_manager *em);
+void 	 message_reset_log_id(event_manager *em);
 #ifdef __cplusplus
 }
 #endif
