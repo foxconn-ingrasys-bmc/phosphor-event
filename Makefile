@@ -15,7 +15,7 @@ LIBS += $(shell pkg-config --libs $(DEPPKGS))
 
 
 
-all: $(EXE)
+all: $(EXE) $(CHECK)
 
 %.o : %.c 
 	$(CC) -c $< $(CFLAGS) $(INCLUDES) -o $@
@@ -29,8 +29,7 @@ $(EXE): $(EXE_OBJS)
 
 
 $(CHECK): $(OBJS_CHECK)
-	$(CXX) $^ $(LDFLAGS) -o $@
-	./$(CHECK)
+	$(CXX) $^ $(LDFLAGS) $(LIBS) -o $@
 
 clean:
 	rm -f $(CHECK) *.o *.so $(EXE)

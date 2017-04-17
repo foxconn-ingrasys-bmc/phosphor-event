@@ -1,393 +1,362 @@
-#include <iostream>
+#include <algorithm>
+#include <dirent.h>
 #include <fstream>
-#include <iomanip>
-#include <cstdint>
-#include <string>
-#include <sys/types.h> 
-#include <dirent.h> 
+#include <iostream>
 #include <sstream>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
-#include <cstring>
+#include <sys/types.h>
+#include <unistd.h>
 #include "message.H"
-#include <time.h>
-#include <stddef.h>
-#include <cstdio>
-#include <syslog.h>
 
-const uint32_t g_eyecatcher = 0x4F424D43; // OBMC
-const uint16_t g_version    = 1;
+using namespace std;
 
-struct logheader_t {
-	uint32_t eyecatcher;
-	uint16_t version;
-	uint16_t logid;
-	time_t   timestamp;
-	uint16_t detailsoffset;
-	uint16_t messagelen;
-	uint16_t severitylen;
-	uint16_t sensor_type_len;
-	uint16_t sensor_number_len;
-	uint16_t associationlen;
-	uint16_t reportedbylen;
-	uint16_t debugdatalen;
+struct LogHeader {
+    uint32_t magic_number;
+    uint16_t version;
+    uint16_t logid;
+    struct timeval timestamp;
+    uint16_t message_len;
+    uint16_t severity_len;
+    uint16_t sensor_type_len;
+    uint16_t sensor_number_len;
+    uint16_t association_len;
+    uint16_t reporter_len;
+    uint16_t debug_data_len;
 };
 
-size_t get_file_size(string fn);
+const uint32_t MAGIC_NUMBER = 0x4F424D43; // OBMC
+const uint16_t VERSION = 1;
 
-
-event_manager::event_manager(string path, size_t reqmaxsize, uint16_t reqmaxlogs)
+static uint16_t getlen (const char *s)
 {
-	uint16_t x;
-	eventpath = path;
-	latestid = 0;
-	dirp = NULL;
-	logcount = 0;
-	maxsize = -1;
-	maxlogs = -1;
-	currentsize = get_managed_size();
-
-	if (reqmaxsize)
-		maxsize = reqmaxsize;
-
-	if (reqmaxlogs)
-		maxlogs = reqmaxlogs;
-
-	// examine the files being managed and advance latestid to that value
-	while ( (x = next_log()) ) {
-		logcount++;
-		if ( x > latestid )
-			latestid = x;
-	}
-
-	return;
+    return (uint16_t) (1 + strlen(s));
 }
 
-event_manager::~event_manager()
+size_t Log::size (void)
 {
-	if (dirp)
-		closedir(dirp);
-
-	return;
+    return sizeof(LogHeader) +
+            getlen(message) +
+            getlen(severity) +
+            getlen(sensor_type) +
+            getlen(sensor_number) +
+            getlen(association) +
+            getlen(reporter) +
+            debug_data_len;
 }
 
-
-bool event_manager::is_logid_a_log(uint16_t logid)
+uint16_t Log::write (string filepath)
 {
-	std::ostringstream buffer;
-	buffer  << int(logid);
-	return is_file_a_log(buffer.str());
+    LogHeader hdr = {0};
+    ofstream f;
+    hdr.magic_number = MAGIC_NUMBER;
+    hdr.version = VERSION;
+    hdr.logid = logid;
+    hdr.timestamp = timestamp;
+    hdr.message_len = getlen(message);
+    hdr.severity_len = getlen(severity);
+    hdr.sensor_type_len = getlen(sensor_type);
+    hdr.sensor_number_len = getlen(sensor_number);
+    hdr.association_len = getlen(association);
+    hdr.reporter_len = getlen(reporter);
+    hdr.debug_data_len = debug_data_len;
+    f.open(filepath.c_str(), ios::binary);
+    if (!f.good()) {
+        f.close();
+        return 0;
+    }
+    f.write((char*) &hdr, sizeof(hdr));
+    f.write((char*) message, hdr.message_len);
+    f.write((char*) severity, hdr.severity_len);
+    f.write((char*) sensor_type, hdr.sensor_type_len);
+    f.write((char*) sensor_number, hdr.sensor_number_len);
+    f.write((char*) association, hdr.association_len);
+    f.write((char*) reporter, hdr.reporter_len);
+    f.write((char*) debug_data, hdr.debug_data_len);
+    f.close();
+    return logid;
 }
 
-
-bool event_manager::is_file_a_log(string str)
+EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
+        void (*on_create_log) (const Log* log),
+        void (*on_remove_log) (const Log* log))
 {
-	std::ostringstream buffer;
-	ifstream f;
-	logheader_t hdr;
-
-	if (!str.compare("."))
-		return 0;
-
-	if (!str.compare(".."))
-		return 0;
-
-	buffer << eventpath << "/" << str;
-
-	f.open( buffer.str(), ios::binary);
-
-	if (!f.good()) {
-		f.close();
-		return 0;
-	}
-
-	f.read((char*)&hdr, sizeof(hdr));
-	f.close();
-
-	if (hdr.eyecatcher != g_eyecatcher)
-		return 0;
-
-	return 1;
+    uint16_t x;
+    Log *log;
+    DIR *dir;
+    struct dirent *dirent;
+    LogIndex index;
+    eventpath = path;
+    this->maxsize = -1;
+    if (maxsize) {
+        this->maxsize = maxsize;
+    }
+    this->maxlogs = -1;
+    if (maxlogs) {
+        this->maxlogs = maxlogs;
+    }
+    this->on_create_log = on_create_log;
+    this->on_remove_log = on_remove_log;
+    if ((dir = opendir(eventpath.c_str())) != NULL) {
+        while ((dirent = readdir(dir)) != NULL) {
+            x = (uint16_t) atoi(dirent->d_name);
+            if (is_log(x) && open_log(x, &log) == x) {
+                index.logid = x;
+                index.timestamp = log->timestamp;
+                index.size = log->size();
+                logs.push_back(index);
+                close_log(log);
+            }
+        }
+        closedir(dir);
+    }
 }
 
-uint16_t event_manager::log_count(void)
+bool EventManager::is_log (uint16_t logid)
 {
-	return logcount;
-}
-uint16_t event_manager::latest_log_id(void)
-{
-	return latestid;
-}
-uint16_t event_manager::new_log_id(void)
-{
-	return ++latestid;
-}
-void event_manager::reset_log_id(void)
-{
-	latestid = 0; /* reset latest ID */
-
-	return;
-}
-void event_manager::next_log_refresh(void)
-{
-	if (dirp) {
-		closedir(dirp);
-		dirp = NULL;
-	}
-
-	return;
+    ifstream f;
+    LogHeader hdr;
+    f.open(log_path(logid).c_str(), ios::binary);
+    if (!f.good()) {
+        f.close();
+        return 0;
+    }
+    f.read((char*) &hdr, sizeof(hdr));
+    f.close();
+    return hdr.magic_number == MAGIC_NUMBER;
 }
 
-uint16_t event_manager::next_log(void)
+string EventManager::log_path (uint16_t logid)
 {
-	std::ostringstream buffer;
-	struct dirent *ent;
-	uint16_t id;
-
-	if (dirp == NULL)
-		dirp = opendir(eventpath.c_str());
-
-	if (dirp) {
-		do {
-			ent = readdir(dirp);
-
-			if (ent == NULL)
-				break;
-
-			string str(ent->d_name);
-
-			if (is_file_a_log(str)) {
-				id = (uint16_t) atoi(str.c_str());
-				break;
-			}
-
-		} while( 1 );
-	} else {
-		cerr << "Error opening directory " << eventpath << endl;
-		ent = NULL;
-		id = 0;
-	}
-
-	if (ent == NULL) {
-		closedir(dirp);
-		dirp = NULL;
-	}
-
-	return  ((ent == NULL) ? 0 : id);
+    ostringstream path;
+    path << eventpath << "/" << logid;
+    return path.str();
 }
 
-
-uint16_t event_manager::create(event_record_t *rec)
+uint16_t EventManager::next_logid (void)
 {
-	rec->logid = new_log_id();
-	rec->timestamp = time(NULL);
-
-	return create_log_event(rec);
+    LogIndex index;
+    uint16_t i;
+    if (logs.size() == maxlogs) {
+        return 0;
+    }
+    if (logs.size() == 0) {
+        return 1;
+    }
+    index.logid = latest_logid();
+    sort(logs.begin(), logs.end(), LogIndex::compare_by_logid);
+    for (i = 1 ; i <= maxlogs ; i++) {
+        index.logid++;
+        if (maxlogs < index.logid) {
+            index.logid = 1;
+        }
+        if (!binary_search(logs.begin(), logs.end(), index,
+                    LogIndex::compare_by_logid)) {
+            return index.logid;
+        }
+    }
+    return 0;
 }
 
-inline uint16_t getlen(const char *s)
+vector<uint16_t> EventManager::logids (void)
 {
-	return (uint16_t) (1 + strlen(s));
+    vector<uint16_t> logids;
+    vector<LogIndex>::iterator iter;
+    sort(logs.begin(), logs.end(), LogIndex::compare_by_timestamp);
+    for (iter = logs.begin() ; iter != logs.end() ; iter++) {
+        logids.push_back((*iter).logid);
+    }
+    return logids;
 }
 
-
-/* If everything is working correctly, return file size, */
-/* Otherwise return 0 */
-size_t get_file_size(string fn)
+uint16_t EventManager::eldest_logid (void)
 {
-	struct stat f_stat;
-	int r = -1;
-
-	r = stat(fn.c_str(), &f_stat);
-
-	if (r < 0) {
-		fprintf(stderr, "Error get_file_size() for %s, %s\n",
-				fn.c_str(),
-				strerror(errno));
-		return 0;
-	}
-
-	return (f_stat.st_size);
+    if (logs.size() == 0) {
+        return 0;
+    }
+    sort(logs.begin(), logs.end(), LogIndex::compare_by_timestamp);
+    return logs.front().logid;
 }
 
-
-size_t event_manager::get_managed_size(void)
+uint16_t EventManager::latest_logid (void)
 {
-	DIR *dirp;
-	std::ostringstream buffer;
-	struct dirent *ent;
-	ifstream f;
-
-	size_t db_size = 0;
-
-	dirp = opendir(eventpath.c_str());
-
-	if (dirp) {
-		while ( (ent = readdir(dirp)) != NULL ) {
-
-			string str(ent->d_name);
-
-			if (is_file_a_log(str)) {
-				buffer.str("");
-				buffer << eventpath << "/" << str.c_str();
-				db_size += get_file_size(buffer.str());
-			}
-		}
-	}
-
-	closedir(dirp);
-
-	return (db_size);
+    if (logs.size() == 0) {
+        return 0;
+    }
+    sort(logs.begin(), logs.end(), LogIndex::compare_by_timestamp);
+    return logs.back().logid;
 }
 
-uint16_t event_manager::create_log_event(event_record_t *rec)
+uint16_t EventManager::managed_count (void)
 {
-	std::ostringstream buffer;
-	ofstream myfile;
-	logheader_t hdr = {0};
-	size_t event_size=0;
-
-	buffer << eventpath << "/" << int(rec->logid) ;
-
-	hdr.eyecatcher     = g_eyecatcher;
-	hdr.version        = g_version;
-	hdr.logid          = rec->logid;
-	hdr.timestamp      = rec->timestamp;
-	hdr.detailsoffset  = offsetof(logheader_t, messagelen);
-	hdr.messagelen     = getlen(rec->message);
-	hdr.severitylen    = getlen(rec->severity);
-	hdr.sensor_type_len = getlen(rec->sensor_type);
-	hdr.sensor_number_len = getlen(rec->sensor_number);
-	hdr.associationlen = getlen(rec->association);
-	hdr.reportedbylen  = getlen(rec->reportedby);
-	hdr.debugdatalen   = rec->n;
-
-	event_size = sizeof(logheader_t) + \
-			hdr.messagelen     + \
-			hdr.severitylen    + \
-			hdr.sensor_type_len + \
-			hdr.sensor_number_len + \
-			hdr.associationlen + \
-			hdr.reportedbylen  + \
-			hdr.debugdatalen;
-
-	if((event_size + currentsize)  >= maxsize) {
-		syslog(LOG_ERR, "event logger reached maximum capacity, event not logged");
-		rec->logid = 0;
-
-	} else if (logcount >= maxlogs) {
-		syslog(LOG_ERR, "event logger reached maximum log events, event not logged");
-		rec->logid = 0;
-
-	} else {
-		currentsize += event_size;
-		myfile.open(buffer.str() , ios::out|ios::binary);
-		myfile.write((char*) &hdr, sizeof(hdr));
-		myfile.write((char*) rec->message, hdr.messagelen);
-		myfile.write((char*) rec->severity, hdr.severitylen);
-		myfile.write((char*) rec->sensor_type, hdr.sensor_type_len);
-		myfile.write((char*) rec->sensor_number, hdr.sensor_number_len);
-		myfile.write((char*) rec->association, hdr.associationlen);
-		myfile.write((char*) rec->reportedby, hdr.reportedbylen);
-		myfile.write((char*) rec->p, hdr.debugdatalen);
-		myfile.close();
-
-		if (is_logid_a_log(rec->logid)) {
-			logcount++;
-		} else {
-			cout << "Warning: Event not logged, failed to store data" << endl;
-			rec->logid = 0;
-		}
-	}
-
-	return rec->logid;
+    return logs.size();
 }
 
-int event_manager::open(uint16_t logid, event_record_t **rec)
+size_t EventManager::managed_size (void)
 {
-	std::ostringstream buffer;
-	ifstream f;
-	logheader_t hdr;
-
-	buffer << eventpath << "/" << int(logid);
-
-	f.open( buffer.str(), ios::binary );
-
-	if (!f.good()) {
-		return 0;
-	}
-
-	*rec = new event_record_t;
-
-	f.read((char*)&hdr, sizeof(hdr));
-
-	(*rec)->logid     = hdr.logid;
-	(*rec)->timestamp = hdr.timestamp;
-
-
-	(*rec)->message = new char[hdr.messagelen];
-	f.read((*rec)->message, hdr.messagelen);
-
-	(*rec)->severity = new char[hdr.severitylen];
-	f.read((*rec)->severity, hdr.severitylen);
-
-	(*rec)->sensor_type = new char[hdr.sensor_type_len];
-	f.read((*rec)->sensor_type, hdr.sensor_type_len);
-
-	(*rec)->sensor_number = new char[hdr.sensor_number_len];
-	f.read((*rec)->sensor_number, hdr.sensor_number_len);
-
-	(*rec)->association = new char[hdr.associationlen];
-	f.read((*rec)->association, hdr.associationlen);
-
-	(*rec)->reportedby = new char[hdr.reportedbylen];
-	f.read((*rec)->reportedby, hdr.reportedbylen);
-
-	(*rec)->p = new uint8_t[hdr.debugdatalen];
-	f.read((char*)(*rec)->p, hdr.debugdatalen);
-	(*rec)->n = hdr.debugdatalen;
-
-
-	f.close();
-	return logid;
+    vector<LogIndex>::iterator iter;
+    size_t size;
+    size = 0;
+    for (iter = logs.begin() ; iter != logs.end() ; iter++) {
+        size += (*iter).size;
+    }
+    return size;
 }
 
-void event_manager::close(event_record_t *rec)
+uint16_t EventManager::open_log (uint16_t logid, Log** log)
 {
-	delete[] rec->message;
-	delete[] rec->severity;
-	delete[] rec->sensor_type;
-	delete[] rec->sensor_number;
-	delete[] rec->association;
-	delete[] rec->reportedby;
-	delete[] rec->p;
-	delete rec;
-
-	return ;
+    ifstream f;
+    LogHeader hdr;
+    f.open(log_path(logid).c_str(), ios::binary);
+    if (!f.good()) {
+        return 0;
+    }
+    *log = new Log;
+    f.read((char*) &hdr, sizeof(hdr));
+    (*log)->logid = hdr.logid;
+    (*log)->timestamp = hdr.timestamp;
+    (*log)->message = new char[hdr.message_len];
+    f.read((*log)->message, hdr.message_len);
+    (*log)->severity = new char[hdr.severity_len];
+    f.read((*log)->severity, hdr.severity_len);
+    (*log)->sensor_type = new char[hdr.sensor_type_len];
+    f.read((*log)->sensor_type, hdr.sensor_type_len);
+    (*log)->sensor_number = new char[hdr.sensor_number_len];
+    f.read((*log)->sensor_number, hdr.sensor_number_len);
+    (*log)->association = new char[hdr.association_len];
+    f.read((*log)->association, hdr.association_len);
+    (*log)->reporter = new char[hdr.reporter_len];
+    f.read((*log)->reporter, hdr.reporter_len);
+    (*log)->debug_data = new uint8_t[hdr.debug_data_len];
+    f.read((char*) (*log)->debug_data, hdr.debug_data_len);
+    (*log)->debug_data_len = hdr.debug_data_len;
+    f.close();
+    return logid;
 }
 
-int event_manager::remove(uint16_t logid)
+void EventManager::close_log (Log* log)
 {
-	std::stringstream buffer;
-	string s;
-	size_t event_size;
+    delete[] log->message;
+    delete[] log->severity;
+    delete[] log->sensor_type;
+    delete[] log->sensor_number;
+    delete[] log->association;
+    delete[] log->reporter;
+    delete[] log->debug_data;
+    delete log;
+}
 
-	buffer << eventpath << "/" << int(logid);
+uint16_t EventManager::create_log (Log* log)
+{
+    size_t size;
+    uint16_t eldest_logid;
+    LogIndex index;
+    size = log->size();
+    if (maxsize < size) {
+        cerr << "DEBUG: log too big to be stored" << endl;
+        return 0;
+    }
+    while (!(managed_size() + size <= maxsize &&
+                managed_count() + 1 <= maxlogs)) {
+        eldest_logid = this->eldest_logid();
+        remove_log(eldest_logid);
+    }
+    log->logid = next_logid();
+    gettimeofday(&log->timestamp, NULL);
+    if (log->write(log_path(log->logid)) != log->logid) {
+        cerr << "DEBUG: fail to write log file" << endl;
+        return 0;
+    }
+    index.logid = log->logid;
+    index.timestamp = log->timestamp;
+    index.size = size;
+    logs.push_back(index);
+    if (on_create_log) {
+        on_create_log(log);
+    }
+    return log->logid;
+}
 
-	s = buffer.str();
+void EventManager::remove_all_logs (void)
+{
+    LogIndex index;
+    Log *log;
+    while (!logs.empty()) {
+        index = logs.back();
+        if (on_remove_log) {
+            if (open_log(index.logid, &log) == index.logid) {
+                on_remove_log(log);
+                close_log(log);
+            }
+        }
+        remove(log_path(index.logid).c_str());
+        logs.pop_back();
+    }
+}
 
-	event_size = get_file_size(s);
-	std::remove(s.c_str());
+void EventManager::remove_log (uint16_t logid)
+{
+    Log *log;
+    LogIndex index;
+    pair<vector<LogIndex>::iterator, vector<LogIndex>::iterator> bounds;
+    if (on_remove_log) {
+        if (open_log(logid, &log) == logid) {
+            on_remove_log(log);
+            close_log(log);
+        }
+    }
+    remove(log_path(logid).c_str());
+    sort(logs.begin(), logs.end(), LogIndex::compare_by_logid);
+    index.logid = logid;
+    bounds = equal_range(logs.begin(), logs.end(), index,
+            LogIndex::compare_by_logid);
+    if ((*bounds.first).logid == logid && bounds.second - bounds.first == 1) {
+        logs.erase(bounds.first);
+    }
+}
 
-	/* If everything is working correctly deleting all the logs would */ 
-	/* result in currentsize being zero.  But  since size_t is unsigned */
-	/* it's kind of dangerous to  assume life happens perfectly */
-	if (currentsize < event_size)
-		currentsize = 0;
-	else
-		currentsize -= event_size;
+void message_log_clear_all (EventManager* em)
+{
+    em->remove_all_logs();
+}
 
-	if (logcount > 0)
-		logcount--;
+void message_log_close (EventManager* em, Log* log)
+{
+    em->close_log(log);
+}
 
-	return 0;
+uint16_t message_log_create (EventManager* em, Log* log)
+{
+    return em->create_log(log);
+}
+
+void message_log_delete (EventManager* em, uint16_t logid)
+{
+    em->remove_log(logid);
+}
+
+int message_log_get_all_logids (EventManager* em, uint16_t** logids,
+        uint16_t* count)
+{
+    vector<uint16_t> logid_vector;
+    vector<uint16_t>::iterator iter;
+    int i;
+    logid_vector = em->logids();
+    *logids = (uint16_t*) calloc(sizeof(uint16_t), logid_vector.size());
+    if (!*logids) {
+        return -1;
+    }
+    *count = logid_vector.size();
+    for (i = 0, iter = logid_vector.begin() ;
+            iter != logid_vector.end() ;
+            i++, iter++) {
+        (*logids)[i] = *iter;
+    }
+    return 0;
+}
+
+uint16_t message_log_open (EventManager* em, uint16_t logid, Log** log)
+{
+    return em->open_log(logid, log);
 }
