@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/queue.h>
 #include <systemd/sd-bus.h>
 #include <time.h>
@@ -79,6 +80,14 @@ static int method_accept_bmc (
     if (err < 0) {
         fprintf(stderr, "ERR: fail to record BMC log: %s\n", strerror(-err));
         return err;
+    }
+    if (!(strncmp(log.severity, "DEBUG", 6) == 0 ||
+                strncmp(log.severity, "INFO", 5) == 0 ||
+                strncmp(log.severity, "ERROR", 6) == 0)) {
+        fprintf(stderr,
+                "ERR: fail to record BMC log: invalid severity \"%s\"\n",
+                log.severity);
+        return -1;
     }
     err = sd_bus_message_read_array(bm, 'y',
             (const void **) &log.debug_data,
