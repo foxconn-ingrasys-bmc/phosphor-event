@@ -54,9 +54,9 @@ static void test_suite (void)
     Log REC2;
     vector<uint16_t> logids;
 
-    test_suite_build_log(&REC1, "Testing Message1", "DEBUG", "Sensor Type",
+    test_suite_build_log(&REC1, "Testing Message1", "DEBUG", "0xCD",
             "0xAB", "Association", "Test", P, 4);
-    test_suite_build_log(&REC2, "Testing Message2", "DEBUG", "Sensor Type",
+    test_suite_build_log(&REC2, "Testing Message2", "DEBUG", "0xCD",
             "0xAB", "Association", "Test", P, 4);
 
     /* TEST: build 2 logs and verify their content. */
@@ -64,17 +64,17 @@ static void test_suite (void)
     test_suite_setup();
     EventManager em0(EVENTSPATH, 0, 0);
     assert(em0.create_log(&REC1) == 1);
-    assert(em0.managed_size() == 93);
+    assert(em0.managed_size() == 86);
     assert(em0.managed_count() == 1);
     assert(em0.latest_logid() == 1);
     assert(em0.create_log(&REC2) == 2);
-    assert(em0.managed_size() == 186);
+    assert(em0.managed_size() == 172);
     assert(em0.managed_count() == 2);
     assert(em0.latest_logid() == 2);
     assert(em0.open_log(1, &log) == 1);
     assert(strcmp(log->message, "Testing Message1") == 0);
     assert(strcmp(log->severity, "DEBUG") == 0);
-    assert(strcmp(log->sensor_type, "Sensor Type") == 0);
+    assert(strcmp(log->sensor_type, "0xCD") == 0);
     assert(strcmp(log->sensor_number, "0xAB") == 0);
     assert(strcmp(log->association, "Association") == 0);
     assert(strcmp(log->reporter, "Test") == 0);
@@ -91,13 +91,13 @@ static void test_suite (void)
 
     /* TEST: log count, ID, and size should persist across event manager. */
     EventManager em1(EVENTSPATH, 0, 0);
-    assert(em1.managed_size() == 186);
+    assert(em1.managed_size() == 172);
     assert(em1.managed_count() == 2);
     assert(em1.latest_logid() == 2);
 
     /* TEST: max limits. */
     test_suite_setup();
-    EventManager em2(EVENTSPATH, 92, 0);
+    EventManager em2(EVENTSPATH, 85, 0);
     assert(em2.create_log(&REC1) == 0);
 
     /* TEST: next log ID is derived from the latest log. */
@@ -213,7 +213,7 @@ static void test_suite_systemd (void)
                 "sssss",
                 "DEBUG",
                 "Message",
-                "Sensor Type",
+                "0xCD",
                 "0xAB",
                 "Association"));
     assert(0 <= sd_bus_message_append_array(
@@ -240,7 +240,7 @@ static void test_suite_systemd (void)
                 "sssss",
                 "INVALID_SEVERITY",
                 "Message",
-                "Sensor Type",
+                "0xCD",
                 "0xAB",
                 "Association"));
     assert(0 <= sd_bus_message_append_array(
@@ -288,7 +288,7 @@ static void test_suite_systemd (void)
                 "sensor_type",
                 &error,
                 &property));
-    assert(strcmp(property, "Sensor Type") == 0);
+    assert(strcmp(property, "0xCD") == 0);
     free(property);
 
     /* TEST: property sensor_number */
@@ -375,7 +375,7 @@ static void test_suite_systemd (void)
                 "sssss",
                 "DEBUG",
                 "Message",
-                "Sensor Type",
+                "0xCD",
                 "0xAB",
                 "Association"));
     assert(0 <= sd_bus_message_append_array(
@@ -400,7 +400,7 @@ static void test_suite_systemd (void)
                 "sssss",
                 "DEBUG",
                 "Message",
-                "Sensor Type",
+                "0xCD",
                 "0xAB",
                 "Association"));
     assert(0 <= sd_bus_message_append_array(
@@ -473,7 +473,7 @@ static void test_suite_systemd (void)
                 "sssss",
                 "DEBUG",
                 "Message",
-                "Sensor Type",
+                "0xCD",
                 "0xAB",
                 "Association"));
     assert(0 <= sd_bus_message_append_array(
@@ -498,7 +498,7 @@ static void test_suite_systemd (void)
                 "sssss",
                 "DEBUG",
                 "Message",
-                "Sensor Type",
+                "0xCD",
                 "0xAB",
                 "Association"));
     assert(0 <= sd_bus_message_append_array(
