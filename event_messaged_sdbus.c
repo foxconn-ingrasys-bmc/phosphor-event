@@ -261,9 +261,11 @@ static int method_delete (
         sd_bus_error* error)
 {
     struct MessageEntry *msg;
+    uint16_t logid;
     msg = user_data;
+    logid = msg->logid;
     message_log_delete(sEventManager, msg->logid);
-    fprintf(stderr, "INFO: delte log %d\n", msg->logid);
+    fprintf(stderr, "INFO: delete log %d\n", logid);
     return sd_bus_reply_method_return(bm, "q", 0);
 }
 
