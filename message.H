@@ -51,6 +51,8 @@ private:
     std::string eventpath;
     size_t maxsize;
     uint16_t maxlogs;
+    std::string sensor_type;
+    std::string sensor_number;
     std::vector<LogIndex> logs;
 
     bool is_log (uint16_t logid);
@@ -62,8 +64,14 @@ private:
 
 public:
     EventManager (std::string path, size_t maxsize, uint16_t maxlogs,
+            std::string sensor_type = "0x00",
+            std::string sensor_number = "0x00",
             void (*on_create_log) (const Log* log) = NULL,
             void (*on_remove_log) (const Log* log) = NULL);
+
+    /* manager information retrieval */
+    std::string get_sensor_number (void);
+    std::string get_sensor_type (void);
 
     /* log information retrieval */
     std::vector<uint16_t> logids (void);
@@ -86,7 +94,7 @@ typedef struct EventManager EventManager;
 #ifdef __cplusplus
 extern "C" {
 #endif
-void message_log_clear_all (EventManager* em);
+uint16_t message_log_clear_all (EventManager* em);
 void message_log_close (EventManager* em, Log* log);
 uint16_t message_log_create (EventManager* em, Log* log);
 void message_log_delete (EventManager* em, uint16_t logid);

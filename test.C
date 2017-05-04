@@ -388,6 +388,31 @@ static void test_suite_systemd (void)
     sd_bus_message_unref(req);
     sd_bus_message_unref(res);
     assert(logid1 != 0);
+    assert(0 <= sd_bus_message_new_method_call(
+                bus,
+                &req,
+                "org.openbmc.records.events",
+                "/org/openbmc/records/events",
+                "org.openbmc.recordlog",
+                "acceptBMCMessage"));
+    assert(0 <= sd_bus_message_append(
+                req,
+                "sssss",
+                "DEBUG",
+                "Message",
+                "Sensor Type",
+                "0xAB",
+                "Association"));
+    assert(0 <= sd_bus_message_append_array(
+                req,
+                'y',
+                debug_data,
+                4));
+    assert(0 <= sd_bus_call(bus, req, 0, &error, &res));
+    assert(0 <= sd_bus_message_read(res, "q", &logid2));
+    sd_bus_message_unref(req);
+    sd_bus_message_unref(res);
+    assert(logid2 != 0);
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
@@ -398,8 +423,42 @@ static void test_suite_systemd (void)
                 &res,
                 NULL));
     sd_bus_message_unref(res);
-    snprintf(log_path, 64, "/var/lib/obmc/events/%d", logid1);
+    snprintf(log_path, 64, "/var/lib/obmc/events/%d", logid2);
     assert(access(log_path, F_OK) != 0);
+    assert(0 <= sd_bus_get_property_string(
+                bus,
+                "org.openbmc.records.events",
+                "/org/openbmc/records/events/1",
+                "org.openbmc.record",
+                "sensor_type",
+                &error,
+                &property));
+    assert(strcmp(property, "0x10") == 0);
+    free(property);
+    assert(0 <= sd_bus_get_property_string(
+                bus,
+                "org.openbmc.records.events",
+                "/org/openbmc/records/events/1",
+                "org.openbmc.record",
+                "sensor_number",
+                &error,
+                &property));
+    assert(strcmp(property, "0x80") == 0);
+    free(property);
+    assert(0 <= sd_bus_call_method(
+                bus,
+                "org.openbmc.records.events",
+                "/org/openbmc/records/events",
+                "org.openbmc.recordlog",
+                "getAllLogIds",
+                &error,
+                &res,
+                NULL));
+    assert(0 <= sd_bus_message_read_array(res, SD_BUS_TYPE_UINT16,
+                (const void**) &logids, &logid_count));
+    logid_count /= sizeof(uint16_t);
+    assert(logid_count == 1);
+    sd_bus_message_unref(res);
 
     /* TEST: method getAllLogIds */
     assert(0 <= sd_bus_message_new_method_call(
@@ -464,9 +523,9 @@ static void test_suite_systemd (void)
     assert(0 <= sd_bus_message_read_array(res, SD_BUS_TYPE_UINT16,
                 (const void**) &logids, &logid_count));
     logid_count /= sizeof(uint16_t);
-    assert(logid_count == 2);
-    assert(logids[0] == logid1);
-    assert(logids[1] == logid2);
+    assert(logid_count == 3); // the first log is "clearing all logs"
+    assert(logids[1] == logid1);
+    assert(logids[2] == logid2);
     sd_bus_message_unref(res);
 
     /* TEARDOWN SD-BUS */

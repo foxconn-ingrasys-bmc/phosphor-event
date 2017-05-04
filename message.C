@@ -79,6 +79,7 @@ uint16_t Log::write (string filepath)
 }
 
 EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
+        string sensor_type, string sensor_number,
         void (*on_create_log) (const Log* log),
         void (*on_remove_log) (const Log* log))
 {
@@ -96,6 +97,8 @@ EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
     if (maxlogs) {
         this->maxlogs = maxlogs;
     }
+    this->sensor_type = sensor_type;
+    this->sensor_number = sensor_number;
     this->on_create_log = on_create_log;
     this->on_remove_log = on_remove_log;
     if ((dir = opendir(eventpath.c_str())) != NULL) {
@@ -278,6 +281,16 @@ uint16_t EventManager::create_log (Log* log)
     return log->logid;
 }
 
+string EventManager::get_sensor_number (void)
+{
+    return sensor_number;
+}
+
+string EventManager::get_sensor_type (void)
+{
+    return sensor_type;
+}
+
 void EventManager::remove_all_logs (void)
 {
     LogIndex index;
@@ -316,9 +329,20 @@ void EventManager::remove_log (uint16_t logid)
     }
 }
 
-void message_log_clear_all (EventManager* em)
+uint16_t message_log_clear_all (EventManager* em)
 {
+    Log log = {
+        .message = (char*) "Clear all logs",
+        .severity = (char*) "INFO",
+        .sensor_type = (char*) em->get_sensor_type().c_str(),
+        .sensor_number = (char*) em->get_sensor_number().c_str(),
+        .association = (char*) "",
+        .reporter = (char*) "BMC",
+        .debug_data = NULL,
+        .debug_data_len = 0,
+    };
     em->remove_all_logs();
+    return em->create_log(&log);
 }
 
 void message_log_close (EventManager* em, Log* log)

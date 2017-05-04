@@ -112,9 +112,15 @@ static int method_clear_all (
         void* user_data,
         sd_bus_error* error)
 {
-    message_log_clear_all(sEventManager);
-    fprintf(stderr, "INFO: clear all logs\n");
-    return sd_bus_reply_method_return(bm, "q", 0);
+    uint16_t logid;
+    if ((logid = message_log_clear_all(sEventManager)) != 0) {
+        fprintf(stderr, "INFO: clear all logs\n");
+        return sd_bus_reply_method_return(bm, "q", logid);
+    }
+    else {
+        fprintf(stderr, "ERR: fail to record BMC log\n");
+        return sd_bus_reply_method_return(bm, "q", 0);
+    }
 }
 
 static int method_get_all_logids (
