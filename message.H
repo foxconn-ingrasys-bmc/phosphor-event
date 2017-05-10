@@ -9,12 +9,10 @@
 #endif
 
 typedef struct Log {
-    char* message;
-    char* severity;
-    char* sensor_type;
-    char* sensor_number;
-    char* association;
-    char* reporter;
+    char* message; // TODO break
+    char* severity; // TODO uint8_t
+    char* sensor_type; // TODO uint8_t
+    char* sensor_number; // TODO uint8_t
     uint8_t* debug_data;
     size_t debug_data_len;
     struct timeval timestamp;
@@ -51,11 +49,10 @@ private:
     std::string eventpath;
     size_t maxsize;
     uint16_t maxlogs;
-    std::string sensor_type;
-    std::string sensor_number;
+    std::string sensor_type; // TODO uint8_t
+    std::string sensor_number; // TODO uint8_t
     std::vector<LogIndex> logs;
 
-    bool is_log (uint16_t logid);
     std::string log_path (uint16_t logid);
     uint16_t next_logid (void);
 

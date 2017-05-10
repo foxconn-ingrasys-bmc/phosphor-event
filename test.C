@@ -21,8 +21,6 @@ static void test_suite_build_log (
         const char* severity,
         const char* sensor_type,
         const char* sensor_number,
-        const char* association,
-        const char* reporter,
         uint8_t* debug_data,
         size_t debug_data_len)
 {
@@ -30,8 +28,6 @@ static void test_suite_build_log (
     log->severity = (char*) severity;
     log->sensor_type = (char*) sensor_type;
     log->sensor_number = (char*) sensor_number;
-    log->association = (char*) association;
-    log->reporter = (char*) reporter;
     log->debug_data = debug_data;
     log->debug_data_len = debug_data_len;
 }
@@ -55,20 +51,20 @@ static void test_suite (void)
     vector<uint16_t> logids;
 
     test_suite_build_log(&REC1, "Testing Message1", "DEBUG", "0xCD",
-            "0xAB", "Association", "Test", P, 4);
+            "0xAB", P, 4);
     test_suite_build_log(&REC2, "Testing Message2", "DEBUG", "0xCD",
-            "0xAB", "Association", "Test", P, 4);
+            "0xAB", P, 4);
 
     /* TEST: build 2 logs and verify their content. */
     Log *log;
     test_suite_setup();
     EventManager em0(EVENTSPATH, 0, 0);
     assert(em0.create_log(&REC1) == 1);
-    assert(em0.managed_size() == 86);
+    assert(em0.managed_size() == 61);
     assert(em0.managed_count() == 1);
     assert(em0.latest_logid() == 1);
     assert(em0.create_log(&REC2) == 2);
-    assert(em0.managed_size() == 172);
+    assert(em0.managed_size() == 122);
     assert(em0.managed_count() == 2);
     assert(em0.latest_logid() == 2);
     assert(em0.open_log(1, &log) == 1);
@@ -76,8 +72,6 @@ static void test_suite (void)
     assert(strcmp(log->severity, "DEBUG") == 0);
     assert(strcmp(log->sensor_type, "0xCD") == 0);
     assert(strcmp(log->sensor_number, "0xAB") == 0);
-    assert(strcmp(log->association, "Association") == 0);
-    assert(strcmp(log->reporter, "Test") == 0);
     assert(log->debug_data_len == 4);;
     assert(log->debug_data[0] == 0x3);
     assert(log->debug_data[1] == 0x32);
@@ -91,13 +85,13 @@ static void test_suite (void)
 
     /* TEST: log count, ID, and size should persist across event manager. */
     EventManager em1(EVENTSPATH, 0, 0);
-    assert(em1.managed_size() == 172);
+    assert(em1.managed_size() == 122);
     assert(em1.managed_count() == 2);
     assert(em1.latest_logid() == 2);
 
     /* TEST: max limits. */
     test_suite_setup();
-    EventManager em2(EVENTSPATH, 85, 0);
+    EventManager em2(EVENTSPATH, 60, 0);
     assert(em2.create_log(&REC1) == 0);
 
     /* TEST: next log ID is derived from the latest log. */
@@ -210,12 +204,11 @@ static void test_suite_systemd (void)
                 "acceptBMCMessage"));
     assert(0 <= sd_bus_message_append(
                 req,
-                "sssss",
+                "ssss",
                 "DEBUG",
                 "Message",
                 "0xCD",
-                "0xAB",
-                "Association"));
+                "0xAB"));
     assert(0 <= sd_bus_message_append_array(
                 req,
                 'y',
@@ -237,12 +230,11 @@ static void test_suite_systemd (void)
                 "acceptBMCMessage"));
     assert(0 <= sd_bus_message_append(
                 req,
-                "sssss",
+                "ssss",
                 "INVALID_SEVERITY",
                 "Message",
                 "0xCD",
-                "0xAB",
-                "Association"));
+                "0xAB"));
     assert(0 <= sd_bus_message_append_array(
                 req,
                 'y',
@@ -304,19 +296,6 @@ static void test_suite_systemd (void)
     assert(strcmp(property, "0xAB") == 0);
     free(property);
 
-    /* TEST: property reported_by */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property_string(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "reported_by",
-                &error,
-                &property));
-    assert(strcmp(property, "BMC") == 0);
-    free(property);
-
     /* TEST: property time */
     snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
     assert(0 <= sd_bus_get_property_string(
@@ -372,12 +351,11 @@ static void test_suite_systemd (void)
                 "acceptBMCMessage"));
     assert(0 <= sd_bus_message_append(
                 req,
-                "sssss",
+                "ssss",
                 "DEBUG",
                 "Message",
                 "0xCD",
-                "0xAB",
-                "Association"));
+                "0xAB"));
     assert(0 <= sd_bus_message_append_array(
                 req,
                 'y',
@@ -397,12 +375,11 @@ static void test_suite_systemd (void)
                 "acceptBMCMessage"));
     assert(0 <= sd_bus_message_append(
                 req,
-                "sssss",
+                "ssss",
                 "DEBUG",
                 "Message",
                 "0xCD",
-                "0xAB",
-                "Association"));
+                "0xAB"));
     assert(0 <= sd_bus_message_append_array(
                 req,
                 'y',
@@ -470,12 +447,11 @@ static void test_suite_systemd (void)
                 "acceptBMCMessage"));
     assert(0 <= sd_bus_message_append(
                 req,
-                "sssss",
+                "ssss",
                 "DEBUG",
                 "Message",
                 "0xCD",
-                "0xAB",
-                "Association"));
+                "0xAB"));
     assert(0 <= sd_bus_message_append_array(
                 req,
                 'y',
@@ -495,12 +471,11 @@ static void test_suite_systemd (void)
                 "acceptBMCMessage"));
     assert(0 <= sd_bus_message_append(
                 req,
-                "sssss",
+                "ssss",
                 "DEBUG",
                 "Message",
                 "0xCD",
-                "0xAB",
-                "Association"));
+                "0xAB"));
     assert(0 <= sd_bus_message_append_array(
                 req,
                 'y',

@@ -11,7 +11,6 @@ struct MessageEntry {
     uint16_t logid;
     sd_bus_slot* slot_message;
     sd_bus_slot* slot_delete;
-    sd_bus_slot* slot_associations;
     LIST_ENTRY(MessageEntry) entries;
 };
 
@@ -71,12 +70,11 @@ static int method_accept_bmc (
     int err;
     uint16_t logid;
     Log log = {0};
-    err = sd_bus_message_read(bm, "sssss",
+    err = sd_bus_message_read(bm, "ssss",
             &log.severity,
             &log.message,
             &log.sensor_type,
-            &log.sensor_number,
-            &log.association);
+            &log.sensor_number);
     if (err < 0) {
         fprintf(stderr, "ERR: fail to record BMC log: %s\n", strerror(-err));
         return err;
@@ -96,7 +94,6 @@ static int method_accept_bmc (
         fprintf(stderr, "ERR: fail to record BMC log: %s\n", strerror(-err));
         return err;
     }
-    log.reporter = "BMC";
     if ((logid = message_log_create(sEventManager, &log)) != 0) {
         fprintf(stderr, "INFO: record BMC log %d: %s\n", logid, log.message);
         return sd_bus_reply_method_return(bm, "q", logid);
@@ -159,7 +156,7 @@ static int method_get_all_logids (
 
 static const sd_bus_vtable TABLE_EVENT[] = {
     SD_BUS_VTABLE_START(0),
-    SD_BUS_METHOD("acceptBMCMessage", "sssssay", "q",
+    SD_BUS_METHOD("acceptBMCMessage", "ssssay", "q",
             method_accept_bmc, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("clear", NULL, "q",
             method_clear_all, SD_BUS_VTABLE_UNPRIVILEGED),
@@ -196,9 +193,6 @@ static int property_message (
     }
     else if (!strncmp("sensor_number", property, 13)) {
         err = sd_bus_message_append(bm, "s", log->sensor_number);
-    }
-    else if (!strncmp("reported_by", property, 11)) {
-        err = sd_bus_message_append(bm, "s", log->reporter);
     }
     else if (!strncmp("time", property, 4)) {
         strftime(buffer, 32, "%Y:%m:%d %H:%M:%S",
@@ -252,8 +246,6 @@ static const sd_bus_vtable TABLE_PROPERTIES[] = {
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
     SD_BUS_PROPERTY("sensor_number", "s",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("reported_by", "s",
-            property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
     SD_BUS_PROPERTY("time", "s",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
     SD_BUS_PROPERTY("debug_data", "ay",
@@ -279,58 +271,6 @@ static const sd_bus_vtable TABLE_DELETE[] = {
     SD_BUS_VTABLE_START(0),
     SD_BUS_METHOD("delete", NULL, "q",
             method_delete, SD_BUS_VTABLE_UNPRIVILEGED),
-    SD_BUS_VTABLE_END
-};
-
-static int property_associations (
-        sd_bus* bus, const char* path, const char* interface,
-        const char* property, sd_bus_message* bm,
-        void* user_data, sd_bus_error* error)
-{
-    struct MessageEntry *msg;
-    Log *log;
-    int err;
-    char *p;
-    char *token;
-    msg = user_data;
-    if (message_log_open(sEventManager, msg->logid, &log) != msg->logid) {
-        fprintf(stderr, "ERR: fail to read property %s of log %d: %s\n",
-                property, msg->logid, "can not open log file");
-        sd_bus_error_set(error, SD_BUS_ERROR_FILE_NOT_FOUND,
-            "Could not find log file");
-        return -1;
-    }
-    p = strdup(log->association);
-    message_log_close(sEventManager, log);
-    if (!p) {
-        fprintf(stderr, "ERR: fail to read property %s of log %d: %s\n",
-                property, msg->logid, "out of memory");
-        sd_bus_error_set(error, SD_BUS_ERROR_NO_MEMORY,
-            "Not enough memory for association");
-        return -1;
-    }
-    err = 0;
-    token = strtok(p, " ");
-    if (token) {
-        err = sd_bus_message_open_container(bm, 'a', "(sss)");
-        while (token) {
-            err = sd_bus_message_append(bm, "(sss)", "fru", "event", token);
-            token = strtok(NULL, " ");
-        }
-        err = sd_bus_message_close_container(bm);
-    }
-    if (err < 0) {
-        fprintf(stderr, "ERR: fail to get associations of log %d: %s\n",
-                msg->logid, strerror(-err));
-    }
-    free(p);
-    return err;
-}
-
-static const sd_bus_vtable TABLE_ASSOCIATIONS[] = {
-    SD_BUS_VTABLE_START(0),
-    SD_BUS_PROPERTY("associations", "a(sss)",
-            property_associations, 0, SD_BUS_VTABLE_PROPERTY_CONST),
     SD_BUS_VTABLE_END
 };
 
@@ -420,15 +360,6 @@ void bus_on_create_log (const Log* log)
     if (err < 0) {
         goto ERR;
     }
-    msg->slot_associations = NULL;
-    if (0 < strlen(log->association)) {
-        err = sd_bus_add_object_vtable(sBus, &msg->slot_associations,
-                object_path, "org.openbmc.Associations",
-                TABLE_ASSOCIATIONS, msg);
-        if (err < 0) {
-            goto ERR;
-        }
-    }
     return;
 ERR:
     fprintf(stderr, "ERR: fail to create log: %s\n", strerror(-err));
@@ -437,9 +368,6 @@ ERR:
     }
     if (msg->slot_delete) {
         sd_bus_slot_unref(msg->slot_delete);
-    }
-    if (msg->slot_associations) {
-        sd_bus_slot_unref(msg->slot_associations);
     }
     message_entry_delete(msg);
 }
@@ -452,9 +380,6 @@ void bus_on_remove_log (const Log* log)
         message_entry_get_path(object_path, msg->logid);
         sd_bus_slot_unref(msg->slot_message);
         sd_bus_slot_unref(msg->slot_delete);
-        if (msg->slot_associations) {
-            sd_bus_slot_unref(msg->slot_associations);
-        }
         message_entry_delete(msg);
     }
 }

@@ -13,21 +13,14 @@
 using namespace std;
 
 struct LogHeader {
-    uint32_t magic_number;
-    uint16_t version;
     uint16_t logid;
     struct timeval timestamp;
     uint16_t message_len;
     uint16_t severity_len;
     uint16_t sensor_type_len;
     uint16_t sensor_number_len;
-    uint16_t association_len;
-    uint16_t reporter_len;
     uint16_t debug_data_len;
 };
-
-const uint32_t MAGIC_NUMBER = 0x4F424D43; // OBMC
-const uint16_t VERSION = 1;
 
 static uint16_t getlen (const char *s)
 {
@@ -41,8 +34,6 @@ size_t Log::size (void)
             getlen(severity) +
             getlen(sensor_type) +
             getlen(sensor_number) +
-            getlen(association) +
-            getlen(reporter) +
             debug_data_len;
 }
 
@@ -50,16 +41,12 @@ uint16_t Log::write (string filepath)
 {
     LogHeader hdr = {0};
     ofstream f;
-    hdr.magic_number = MAGIC_NUMBER;
-    hdr.version = VERSION;
     hdr.logid = logid;
     hdr.timestamp = timestamp;
     hdr.message_len = getlen(message);
     hdr.severity_len = getlen(severity);
     hdr.sensor_type_len = getlen(sensor_type);
     hdr.sensor_number_len = getlen(sensor_number);
-    hdr.association_len = getlen(association);
-    hdr.reporter_len = getlen(reporter);
     hdr.debug_data_len = debug_data_len;
     f.open(filepath.c_str(), ios::binary);
     if (!f.good()) {
@@ -71,8 +58,6 @@ uint16_t Log::write (string filepath)
     f.write((char*) severity, hdr.severity_len);
     f.write((char*) sensor_type, hdr.sensor_type_len);
     f.write((char*) sensor_number, hdr.sensor_number_len);
-    f.write((char*) association, hdr.association_len);
-    f.write((char*) reporter, hdr.reporter_len);
     f.write((char*) debug_data, hdr.debug_data_len);
     f.close();
     return logid;
@@ -104,7 +89,7 @@ EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
     if ((dir = opendir(eventpath.c_str())) != NULL) {
         while ((dirent = readdir(dir)) != NULL) {
             x = (uint16_t) atoi(dirent->d_name);
-            if (is_log(x) && open_log(x, &log) == x) {
+            if (x != 0 && open_log(x, &log) == x) {
                 index.logid = x;
                 index.timestamp = log->timestamp;
                 index.size = log->size();
@@ -114,20 +99,6 @@ EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
         }
         closedir(dir);
     }
-}
-
-bool EventManager::is_log (uint16_t logid)
-{
-    ifstream f;
-    LogHeader hdr;
-    f.open(log_path(logid).c_str(), ios::binary);
-    if (!f.good()) {
-        f.close();
-        return 0;
-    }
-    f.read((char*) &hdr, sizeof(hdr));
-    f.close();
-    return hdr.magic_number == MAGIC_NUMBER;
 }
 
 string EventManager::log_path (uint16_t logid)
@@ -227,10 +198,6 @@ uint16_t EventManager::open_log (uint16_t logid, Log** log)
     f.read((*log)->sensor_type, hdr.sensor_type_len);
     (*log)->sensor_number = new char[hdr.sensor_number_len];
     f.read((*log)->sensor_number, hdr.sensor_number_len);
-    (*log)->association = new char[hdr.association_len];
-    f.read((*log)->association, hdr.association_len);
-    (*log)->reporter = new char[hdr.reporter_len];
-    f.read((*log)->reporter, hdr.reporter_len);
     (*log)->debug_data = new uint8_t[hdr.debug_data_len];
     f.read((char*) (*log)->debug_data, hdr.debug_data_len);
     (*log)->debug_data_len = hdr.debug_data_len;
@@ -244,8 +211,6 @@ void EventManager::close_log (Log* log)
     delete[] log->severity;
     delete[] log->sensor_type;
     delete[] log->sensor_number;
-    delete[] log->association;
-    delete[] log->reporter;
     delete[] log->debug_data;
     delete log;
 }
@@ -336,8 +301,6 @@ uint16_t message_log_clear_all (EventManager* em)
         .severity = (char*) "INFO",
         .sensor_type = (char*) em->get_sensor_type().c_str(),
         .sensor_number = (char*) em->get_sensor_number().c_str(),
-        .association = (char*) "",
-        .reporter = (char*) "BMC",
         .debug_data = NULL,
         .debug_data_len = 0,
     };
