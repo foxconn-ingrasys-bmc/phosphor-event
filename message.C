@@ -16,9 +16,6 @@ struct LogHeader {
     uint16_t logid;
     struct timeval timestamp;
     uint16_t message_len;
-    uint16_t severity_len;
-    uint16_t sensor_type_len;
-    uint16_t sensor_number_len;
     uint16_t debug_data_len;
 };
 
@@ -31,9 +28,9 @@ size_t Log::size (void)
 {
     return sizeof(LogHeader) +
             getlen(message) +
-            getlen(severity) +
-            getlen(sensor_type) +
-            getlen(sensor_number) +
+            sizeof(severity) +
+            sizeof(sensor_type) +
+            sizeof(sensor_number) +
             debug_data_len;
 }
 
@@ -44,9 +41,6 @@ uint16_t Log::write (string filepath)
     hdr.logid = logid;
     hdr.timestamp = timestamp;
     hdr.message_len = getlen(message);
-    hdr.severity_len = getlen(severity);
-    hdr.sensor_type_len = getlen(sensor_type);
-    hdr.sensor_number_len = getlen(sensor_number);
     hdr.debug_data_len = debug_data_len;
     f.open(filepath.c_str(), ios::binary);
     if (!f.good()) {
@@ -55,16 +49,16 @@ uint16_t Log::write (string filepath)
     }
     f.write((char*) &hdr, sizeof(hdr));
     f.write((char*) message, hdr.message_len);
-    f.write((char*) severity, hdr.severity_len);
-    f.write((char*) sensor_type, hdr.sensor_type_len);
-    f.write((char*) sensor_number, hdr.sensor_number_len);
+    f.write((char*) &severity, sizeof(severity));
+    f.write((char*) &sensor_type, sizeof(sensor_type));
+    f.write((char*) &sensor_number, sizeof(sensor_number));
     f.write((char*) debug_data, hdr.debug_data_len);
     f.close();
     return logid;
 }
 
 EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
-        string sensor_type, string sensor_number,
+        uint8_t sensor_type, uint8_t sensor_number,
         void (*on_create_log) (const Log* log),
         void (*on_remove_log) (const Log* log))
 {
@@ -192,12 +186,9 @@ uint16_t EventManager::open_log (uint16_t logid, Log** log)
     (*log)->timestamp = hdr.timestamp;
     (*log)->message = new char[hdr.message_len];
     f.read((*log)->message, hdr.message_len);
-    (*log)->severity = new char[hdr.severity_len];
-    f.read((*log)->severity, hdr.severity_len);
-    (*log)->sensor_type = new char[hdr.sensor_type_len];
-    f.read((*log)->sensor_type, hdr.sensor_type_len);
-    (*log)->sensor_number = new char[hdr.sensor_number_len];
-    f.read((*log)->sensor_number, hdr.sensor_number_len);
+    f.read((char*) &(*log)->severity, sizeof((*log)->severity));
+    f.read((char*) &(*log)->sensor_type, sizeof((*log)->sensor_type));
+    f.read((char*) &(*log)->sensor_number, sizeof((*log)->sensor_number));
     (*log)->debug_data = new uint8_t[hdr.debug_data_len];
     f.read((char*) (*log)->debug_data, hdr.debug_data_len);
     (*log)->debug_data_len = hdr.debug_data_len;
@@ -208,9 +199,6 @@ uint16_t EventManager::open_log (uint16_t logid, Log** log)
 void EventManager::close_log (Log* log)
 {
     delete[] log->message;
-    delete[] log->severity;
-    delete[] log->sensor_type;
-    delete[] log->sensor_number;
     delete[] log->debug_data;
     delete log;
 }
@@ -246,12 +234,12 @@ uint16_t EventManager::create_log (Log* log)
     return log->logid;
 }
 
-string EventManager::get_sensor_number (void)
+uint8_t EventManager::get_sensor_number (void)
 {
     return sensor_number;
 }
 
-string EventManager::get_sensor_type (void)
+uint8_t EventManager::get_sensor_type (void)
 {
     return sensor_type;
 }
@@ -298,9 +286,9 @@ uint16_t message_log_clear_all (EventManager* em)
 {
     Log log = {
         .message = (char*) "Clear all logs",
-        .severity = (char*) "INFO",
-        .sensor_type = (char*) em->get_sensor_type().c_str(),
-        .sensor_number = (char*) em->get_sensor_number().c_str(),
+        .severity = SEVERITY_INFO,
+        .sensor_type = em->get_sensor_type(),
+        .sensor_number = em->get_sensor_number(),
         .debug_data = NULL,
         .debug_data_len = 0,
     };

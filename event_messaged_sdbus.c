@@ -70,7 +70,7 @@ static int method_accept_bmc (
     int err;
     uint16_t logid;
     Log log = {0};
-    err = sd_bus_message_read(bm, "ssss",
+    err = sd_bus_message_read(bm, "ysyy",
             &log.severity,
             &log.message,
             &log.sensor_type,
@@ -79,11 +79,11 @@ static int method_accept_bmc (
         fprintf(stderr, "ERR: fail to record BMC log: %s\n", strerror(-err));
         return err;
     }
-    if (!(strncmp(log.severity, "DEBUG", 6) == 0 ||
-                strncmp(log.severity, "INFO", 5) == 0 ||
-                strncmp(log.severity, "ERROR", 6) == 0)) {
+    if (!(log.severity == SEVERITY_DEBUG ||
+                log.severity == SEVERITY_INFO ||
+                log.severity == SEVERITY_ERR)) {
         fprintf(stderr,
-                "ERR: fail to record BMC log: invalid severity \"%s\"\n",
+                "ERR: fail to record BMC log: invalid severity \"%d\"\n",
                 log.severity);
         return -1;
     }
@@ -156,7 +156,7 @@ static int method_get_all_logids (
 
 static const sd_bus_vtable TABLE_EVENT[] = {
     SD_BUS_VTABLE_START(0),
-    SD_BUS_METHOD("acceptBMCMessage", "ssssay", "q",
+    SD_BUS_METHOD("acceptBMCMessage", "ysyyay", "q",
             method_accept_bmc, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("clear", NULL, "q",
             method_clear_all, SD_BUS_VTABLE_UNPRIVILEGED),
@@ -186,13 +186,13 @@ static int property_message (
         err = sd_bus_message_append(bm, "s", log->message);
     }
     else if (!strncmp("severity", property, 8)) {
-        err = sd_bus_message_append(bm, "s", log->severity);
+        err = sd_bus_message_append(bm, "y", log->severity);
     }
     else if (!strncmp("sensor_type", property, 11)) {
-        err = sd_bus_message_append(bm, "s", log->sensor_type);
+        err = sd_bus_message_append(bm, "y", log->sensor_type);
     }
     else if (!strncmp("sensor_number", property, 13)) {
-        err = sd_bus_message_append(bm, "s", log->sensor_number);
+        err = sd_bus_message_append(bm, "y", log->sensor_number);
     }
     else if (!strncmp("time", property, 4)) {
         strftime(buffer, 32, "%Y:%m:%d %H:%M:%S",
@@ -240,11 +240,11 @@ static const sd_bus_vtable TABLE_PROPERTIES[] = {
     SD_BUS_VTABLE_START(0),
     SD_BUS_PROPERTY("message", "s",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("severity", "s",
+    SD_BUS_PROPERTY("severity", "y",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("sensor_type", "s",
+    SD_BUS_PROPERTY("sensor_type", "y",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("sensor_number", "s",
+    SD_BUS_PROPERTY("sensor_number", "y",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),
     SD_BUS_PROPERTY("time", "s",
             property_message, 0, SD_BUS_VTABLE_PROPERTY_CONST),

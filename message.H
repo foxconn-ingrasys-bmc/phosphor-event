@@ -10,9 +10,13 @@
 
 typedef struct Log {
     char* message; // TODO break
-    char* severity; // TODO uint8_t
-    char* sensor_type; // TODO uint8_t
-    char* sensor_number; // TODO uint8_t
+    uint8_t severity;
+    // value of severity levels are taken from syslog
+    #define SEVERITY_DEBUG 7
+    #define SEVERITY_INFO 6
+    #define SEVERITY_ERR 3
+    uint8_t sensor_type;
+    uint8_t sensor_number;
     uint8_t* debug_data;
     size_t debug_data_len;
     struct timeval timestamp;
@@ -49,8 +53,8 @@ private:
     std::string eventpath;
     size_t maxsize;
     uint16_t maxlogs;
-    std::string sensor_type; // TODO uint8_t
-    std::string sensor_number; // TODO uint8_t
+    uint8_t sensor_type;
+    uint8_t sensor_number;
     std::vector<LogIndex> logs;
 
     std::string log_path (uint16_t logid);
@@ -61,14 +65,14 @@ private:
 
 public:
     EventManager (std::string path, size_t maxsize, uint16_t maxlogs,
-            std::string sensor_type = "0x00",
-            std::string sensor_number = "0x00",
+            uint8_t sensor_type = 0x00,
+            uint8_t sensor_number = 0x00,
             void (*on_create_log) (const Log* log) = NULL,
             void (*on_remove_log) (const Log* log) = NULL);
 
     /* manager information retrieval */
-    std::string get_sensor_number (void);
-    std::string get_sensor_type (void);
+    uint8_t get_sensor_number (void);
+    uint8_t get_sensor_type (void);
 
     /* log information retrieval */
     std::vector<uint16_t> logids (void);

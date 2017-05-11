@@ -36,14 +36,14 @@ int main (int argc, char *argv[])
 {
     size_t maxsize;
     uint16_t maxlogs;
-    const char* sensor_type;
-    const char* sensor_number;
+    uint8_t sensor_type;
+    uint8_t sensor_number;
     int c;
     int err;
     maxsize = 0;
     maxlogs = 0;
-    sensor_type = "0x10"; // XXX hard-coded
-    sensor_number = "0x80"; // XXX hard-coded
+    sensor_type = 0x10; // XXX hard-coded
+    sensor_number = 0x80; // XXX hard-coded
     while ((c = getopt(argc, argv, "s:t:")) != -1) {
         switch (c) {
             case 's':
