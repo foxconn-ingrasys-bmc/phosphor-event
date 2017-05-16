@@ -17,19 +17,17 @@ const string EVENTSPATH = "./events";
 
 static void test_suite_build_log (
         Log* log,
-        const char* message,
         uint8_t severity,
         uint8_t sensor_type,
         uint8_t sensor_number,
-        uint8_t* debug_data,
-        size_t debug_data_len)
+        uint8_t event_dir_type,
+        uint8_t event_data[3])
 {
-    log->message = (char*) message;
     log->severity = severity;
     log->sensor_type = sensor_type;
     log->sensor_number = sensor_number;
-    log->debug_data = debug_data;
-    log->debug_data_len = debug_data_len;
+    log->event_dir_type = event_dir_type;
+    memcpy(log->event_data, event_data, sizeof(event_data));
 }
 
 static void test_suite_setup (void)
@@ -45,53 +43,46 @@ static void test_suite_setup (void)
 
 static void test_suite (void)
 {
-    uint8_t P[] = {0x3, 0x32, 0x34, 0x36};
+    uint8_t P[3] = {0x3, 0x32, 0x34};
     Log REC1;
     Log REC2;
     vector<uint16_t> logids;
 
-    test_suite_build_log(&REC1, "Testing Message1", SEVERITY_DEBUG, 0xCD,
-            0xAB, P, 4);
-    test_suite_build_log(&REC2, "Testing Message2", SEVERITY_DEBUG, 0xCD,
-            0xAB, P, 4);
+    test_suite_build_log(&REC1, SEVERITY_INFO, 0xCD, 0xAB, 0xEF, P);
+    test_suite_build_log(&REC2, SEVERITY_INFO, 0xCD, 0xAB, 0xEF, P);
 
     /* TEST: build 2 logs and verify their content. */
-    Log *log;
+    Log log;
     test_suite_setup();
     EventManager em0(EVENTSPATH, 0, 0);
     assert(em0.create_log(&REC1) == 1);
-    assert(em0.managed_size() == 40);
+    assert(em0.managed_size() == 17);
     assert(em0.managed_count() == 1);
     assert(em0.latest_logid() == 1);
     assert(em0.create_log(&REC2) == 2);
-    assert(em0.managed_size() == 80);
+    assert(em0.managed_size() == 34);
     assert(em0.managed_count() == 2);
     assert(em0.latest_logid() == 2);
-    assert(em0.open_log(1, &log) == 1);
-    assert(strcmp(log->message, "Testing Message1") == 0);
-    assert(log->severity == SEVERITY_DEBUG);
-    assert(log->sensor_type == 0xCD);
-    assert(log->sensor_number == 0xAB);
-    assert(log->debug_data_len == 4);;
-    assert(log->debug_data[0] == 0x3);
-    assert(log->debug_data[1] == 0x32);
-    assert(log->debug_data[2] == 0x34);
-    assert(log->debug_data[3] == 0x36);
-    assert(log->logid == 1);
-    em0.close_log(log);
-    assert(em0.open_log(2, &log) == 2);
-    assert(strcmp(log->message, "Testing Message2") == 0);
-    em0.close_log(log);
+    assert(em0.load_log(1, &log) == 1);
+    assert(log.severity == SEVERITY_INFO);
+    assert(log.sensor_type == 0xCD);
+    assert(log.sensor_number == 0xAB);
+    assert(log.event_dir_type == 0xEF);
+    assert(log.event_data[0] == 0x3);
+    assert(log.event_data[1] == 0x32);
+    assert(log.event_data[2] == 0x34);
+    assert(log.logid == 1);
+    assert(em0.load_log(2, &log) == 2);
 
     /* TEST: log count, ID, and size should persist across event manager. */
     EventManager em1(EVENTSPATH, 0, 0);
-    assert(em1.managed_size() == 80);
+    assert(em1.managed_size() == 34);
     assert(em1.managed_count() == 2);
     assert(em1.latest_logid() == 2);
 
     /* TEST: max limits. */
     test_suite_setup();
-    EventManager em2(EVENTSPATH, 39, 0);
+    EventManager em2(EVENTSPATH, 16, 0);
     assert(em2.create_log(&REC1) == 0);
 
     /* TEST: next log ID is derived from the latest log. */
@@ -176,20 +167,11 @@ static void test_suite (void)
 
 static void test_suite_systemd (void)
 {
-    const uint8_t debug_data[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
     sd_bus *bus = NULL;
     sd_bus_error error = SD_BUS_ERROR_NULL;
-    sd_bus_message *req = NULL;
     sd_bus_message *res = NULL;
     uint16_t logid1;
     uint16_t logid2;
-    char object_path[64];
-    char *property;
-    uint8_t severity;
-    uint8_t sensor_type;
-    uint8_t sensor_number;
-    const uint8_t *prop_debug_data;
-    size_t debug_data_len;
     char log_path[64];
     const uint16_t *logids;
     size_t logid_count;
@@ -198,199 +180,97 @@ static void test_suite_systemd (void)
     assert(0 <= sd_bus_open_system(&bus));
 
     /* TEST: method acceptBMCMessage */
-    assert(0 <= sd_bus_message_new_method_call(
+    assert(0 <= sd_bus_call_method(
                 bus,
-                &req,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage"));
-    assert(0 <= sd_bus_message_append(
-                req,
-                "ysyy",
-                SEVERITY_DEBUG,
-                "Message",
+                "acceptBMCMessage",
+                &error,
+                &res,
+                "yyyyyyy",
+                SEVERITY_INFO,
                 0xCD,
-                0xAB));
-    assert(0 <= sd_bus_message_append_array(
-                req,
-                'y',
-                debug_data,
-                4));
-    assert(0 <= sd_bus_call(bus, req, 0, &error, &res));
+                0xAB,
+                0xEF,
+                0x12,
+                0x34,
+                0x56));
     assert(0 <= sd_bus_message_read(res, "q", &logid1));
-    sd_bus_message_unref(req);
     sd_bus_message_unref(res);
     assert(logid1 != 0);
 
     /* TEST: method acceptBMCMessage should accept limited severity */
-    assert(0 <= sd_bus_message_new_method_call(
+    assert(sd_bus_call_method(
                 bus,
-                &req,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage"));
-    assert(0 <= sd_bus_message_append(
-                req,
-                "ysyy",
-                99,
-                "Message",
-                0xCD,
-                0xAB));
-    assert(0 <= sd_bus_message_append_array(
-                req,
-                'y',
-                debug_data,
-                4));
-    assert(sd_bus_call(bus, req, 0, &error, &res) < 0);
-    sd_bus_message_unref(req);
-    sd_bus_error_free(&error);
-
-    /* TEST: property message */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property_string(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "message",
-                &error,
-                &property));
-    assert(strcmp(property, "Message") == 0);
-    free(property);
-
-    /* TEST: property severity */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property_trivial(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "severity",
-                &error,
-                'y',
-                &severity));
-    assert(severity == SEVERITY_DEBUG);
-
-    /* TEST: property sensor_type */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property_trivial(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "sensor_type",
-                &error,
-                'y',
-                &sensor_type));
-    assert(sensor_type == 0xCD);
-
-    /* TEST: property sensor_number */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property_trivial(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "sensor_number",
-                &error,
-                'y',
-                &sensor_number));
-    assert(sensor_number == 0xAB);
-
-    /* TEST: property time */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property_string(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "time",
-                &error,
-                &property));
-    assert(0 < strlen(property));
-    free(property);
-
-    /* TEST: property debug data */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
-    assert(0 <= sd_bus_get_property(
-                bus,
-                "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.record",
-                "debug_data",
+                "acceptBMCMessage",
                 &error,
                 &res,
-                "ay"));
-    assert(0 <= sd_bus_message_read_array(res, SD_BUS_TYPE_BYTE,
-                (const void**) &prop_debug_data, &debug_data_len));
-    assert(debug_data_len == 4);
-    assert(memcmp(prop_debug_data, debug_data, 4) == 0);
-    sd_bus_message_unref(res);
+                "yyyyyyy",
+                99,
+                0xCD,
+                0xAB,
+                0xEF,
+                0x12,
+                0x34,
+                0x56) < 0);
+    sd_bus_error_free(&error);
 
-    /* TEST: method event.delete */
-    snprintf(object_path, 64, "/org/openbmc/records/events/%d", logid1);
+    /* TEST: method delete */
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
-                object_path,
-                "org.openbmc.Object.Delete",
+                "/org/openbmc/records/events",
+                "org.openbmc.recordlog",
                 "delete",
                 &error,
                 &res,
-                NULL));
+                "q",
+                logid1));
     sd_bus_message_unref(res);
     snprintf(log_path, 64, "/var/lib/obmc/events/%d", logid1);
     assert(access(log_path, F_OK) != 0);
 
     /* TEST: method clear */
-    assert(0 <= sd_bus_message_new_method_call(
+    assert(0 <= sd_bus_call_method(
                 bus,
-                &req,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage"));
-    assert(0 <= sd_bus_message_append(
-                req,
-                "ysyy",
-                SEVERITY_DEBUG,
-                "Message",
+                "acceptBMCMessage",
+                &error,
+                &res,
+                "yyyyyyy",
+                SEVERITY_INFO,
                 0xCD,
-                0xAB));
-    assert(0 <= sd_bus_message_append_array(
-                req,
-                'y',
-                debug_data,
-                4));
-    assert(0 <= sd_bus_call(bus, req, 0, &error, &res));
+                0xAB,
+                0xEF,
+                0x12,
+                0x34,
+                0x56));
     assert(0 <= sd_bus_message_read(res, "q", &logid1));
-    sd_bus_message_unref(req);
     sd_bus_message_unref(res);
     assert(logid1 != 0);
-    assert(0 <= sd_bus_message_new_method_call(
+    assert(0 <= sd_bus_call_method(
                 bus,
-                &req,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage"));
-    assert(0 <= sd_bus_message_append(
-                req,
-                "ysyy",
-                SEVERITY_DEBUG,
-                "Message",
+                "acceptBMCMessage",
+                &error,
+                &res,
+                "yyyyyyy",
+                SEVERITY_INFO,
                 0xCD,
-                0xAB));
-    assert(0 <= sd_bus_message_append_array(
-                req,
-                'y',
-                debug_data,
-                4));
-    assert(0 <= sd_bus_call(bus, req, 0, &error, &res));
+                0xAB,
+                0xEF,
+                0x12,
+                0x34,
+                0x56));
     assert(0 <= sd_bus_message_read(res, "q", &logid2));
-    sd_bus_message_unref(req);
     sd_bus_message_unref(res);
     assert(logid2 != 0);
     assert(0 <= sd_bus_call_method(
@@ -401,30 +281,11 @@ static void test_suite_systemd (void)
                 "clear",
                 &error,
                 &res,
-                NULL));
+                "y",
+                0x80));
     sd_bus_message_unref(res);
     snprintf(log_path, 64, "/var/lib/obmc/events/%d", logid2);
     assert(access(log_path, F_OK) != 0);
-    assert(0 <= sd_bus_get_property_trivial(
-                bus,
-                "org.openbmc.records.events",
-                "/org/openbmc/records/events/1",
-                "org.openbmc.record",
-                "sensor_type",
-                &error,
-                'y',
-                &sensor_type));
-    assert(sensor_type == 0x10);
-    assert(0 <= sd_bus_get_property_trivial(
-                bus,
-                "org.openbmc.records.events",
-                "/org/openbmc/records/events/1",
-                "org.openbmc.record",
-                "sensor_number",
-                &error,
-                'y',
-                &sensor_number));
-    assert(sensor_number == 0x80);
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
@@ -441,52 +302,42 @@ static void test_suite_systemd (void)
     sd_bus_message_unref(res);
 
     /* TEST: method getAllLogIds */
-    assert(0 <= sd_bus_message_new_method_call(
+    assert(0 <= sd_bus_call_method(
                 bus,
-                &req,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage"));
-    assert(0 <= sd_bus_message_append(
-                req,
-                "ysyy",
-                SEVERITY_DEBUG,
-                "Message",
+                "acceptBMCMessage",
+                &error,
+                &res,
+                "yyyyyyy",
+                SEVERITY_INFO,
                 0xCD,
-                0xAB));
-    assert(0 <= sd_bus_message_append_array(
-                req,
-                'y',
-                debug_data,
-                4));
-    assert(0 <= sd_bus_call(bus, req, 0, &error, &res));
+                0xAB,
+                0xEF,
+                0x12,
+                0x34,
+                0x56));
     assert(0 <= sd_bus_message_read(res, "q", &logid1));
-    sd_bus_message_unref(req);
     sd_bus_message_unref(res);
     assert(logid1 != 0);
-    assert(0 <= sd_bus_message_new_method_call(
+    assert(0 <= sd_bus_call_method(
                 bus,
-                &req,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage"));
-    assert(0 <= sd_bus_message_append(
-                req,
-                "ysyy",
-                SEVERITY_DEBUG,
-                "Message",
+                "acceptBMCMessage",
+                &error,
+                &res,
+                "yyyyyyy",
+                SEVERITY_INFO,
                 0xCD,
-                0xAB));
-    assert(0 <= sd_bus_message_append_array(
-                req,
-                'y',
-                debug_data,
-                4));
-    assert(0 <= sd_bus_call(bus, req, 0, &error, &res));
+                0xAB,
+                0xEF,
+                0x12,
+                0x34,
+                0x56));
     assert(0 <= sd_bus_message_read(res, "q", &logid2));
-    sd_bus_message_unref(req);
     sd_bus_message_unref(res);
     assert(logid2 != 0);
     assert(0 <= sd_bus_call_method(

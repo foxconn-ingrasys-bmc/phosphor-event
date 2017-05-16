@@ -4,28 +4,32 @@
 #include <stdint.h>
 #include <sys/time.h>
 #ifdef __cplusplus
+#include <fstream>
+#include <ios>
+#include <istream>
+#include <ostream>
 #include <string>
 #include <vector>
 #endif
 
 typedef struct Log {
-    char* message; // TODO break
+    int16_t logid;
+    struct timeval timestamp;
     uint8_t severity;
     // value of severity levels are taken from syslog
-    #define SEVERITY_DEBUG 7
     #define SEVERITY_INFO 6
-    #define SEVERITY_ERR 3
+    #define SEVERITY_WARN 4
+    #define SEVERITY_CRIT 2
     uint8_t sensor_type;
     uint8_t sensor_number;
-    uint8_t* debug_data;
-    size_t debug_data_len;
-    struct timeval timestamp;
-    int16_t logid;
+    uint8_t event_dir_type;
+    uint8_t event_data[3];
 
 #ifdef __cplusplus
-    size_t size (void);
+    static size_t size (void);
 
-    uint16_t write (std::string filepath);
+    uint16_t read (std::istream& s);
+    uint16_t write (std::ostream& s);
 #endif
 } Log;
 
@@ -50,29 +54,24 @@ struct LogIndex {
 
 class EventManager {
 private:
-    std::string eventpath;
+    std::string lock_path;
+    std::string logs_path;
+    int lockfd;
+    std::fstream logs_file;
     size_t maxsize;
     uint16_t maxlogs;
-    uint8_t sensor_type;
-    uint8_t sensor_number;
     std::vector<LogIndex> logs;
 
-    std::string log_path (uint16_t logid);
+    int open_logs_file (void);
+    void close_logs_file (void);
+    std::streampos log_position (uint16_t logid);
+
+    void initialize_log_files (void);
+    void initialize_log_index (void);
     uint16_t next_logid (void);
 
-    void (*on_create_log) (const Log* log);
-    void (*on_remove_log) (const Log* log);
-
 public:
-    EventManager (std::string path, size_t maxsize, uint16_t maxlogs,
-            uint8_t sensor_type = 0x00,
-            uint8_t sensor_number = 0x00,
-            void (*on_create_log) (const Log* log) = NULL,
-            void (*on_remove_log) (const Log* log) = NULL);
-
-    /* manager information retrieval */
-    uint8_t get_sensor_number (void);
-    uint8_t get_sensor_type (void);
+    EventManager (std::string path, size_t maxsize, uint16_t maxlogs);
 
     /* log information retrieval */
     std::vector<uint16_t> logids (void);
@@ -81,9 +80,12 @@ public:
     uint16_t managed_count (void);
     size_t managed_size (void);
 
-    /* log manipulation */
-    uint16_t open_log (uint16_t logid, Log** log);
-    void close_log (Log* log);
+    /* low-level log manipulation */
+    uint16_t load_log (uint16_t logid, Log* log);
+    uint16_t save_log (Log* log);
+    void nullify_log (uint16_t logid);
+
+    /* high-level log manipulation */
     uint16_t create_log (Log* log);
     void remove_all_logs (void);
     void remove_log (uint16_t logid);
@@ -95,13 +97,11 @@ typedef struct EventManager EventManager;
 #ifdef __cplusplus
 extern "C" {
 #endif
-uint16_t message_log_clear_all (EventManager* em);
-void message_log_close (EventManager* em, Log* log);
+uint16_t message_log_clear_all (EventManager* em, uint8_t sensor_number);
 uint16_t message_log_create (EventManager* em, Log* log);
 void message_log_delete (EventManager* em, uint16_t logid);
 int message_log_get_all_logids (EventManager* em, uint16_t** logids,
         uint16_t* count);
-uint16_t message_log_open (EventManager* em, uint16_t logid, Log** log);
 #ifdef __cplusplus
 }
 #endif

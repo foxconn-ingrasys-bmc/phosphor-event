@@ -1,10 +1,11 @@
 #include <algorithm>
-#include <dirent.h>
-#include <fstream>
+#include <errno.h>
+#include <fcntl.h>
 #include <iostream>
 #include <sstream>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -12,62 +13,91 @@
 
 using namespace std;
 
-struct LogHeader {
-    uint16_t logid;
-    struct timeval timestamp;
-    uint16_t message_len;
-    uint16_t debug_data_len;
-};
-
-static uint16_t getlen (const char *s)
-{
-    return (uint16_t) (1 + strlen(s));
-}
+static Log BLANK_LOG = {0};
 
 size_t Log::size (void)
 {
-    return sizeof(LogHeader) +
-            getlen(message) +
-            sizeof(severity) +
-            sizeof(sensor_type) +
-            sizeof(sensor_number) +
-            debug_data_len;
+    // sizeof(logid) +
+    // sizeof(timestamp) +
+    // sizeof(severity) +
+    // sizeof(sensor_type) +
+    // sizeof(sensor_number) +
+    // sizeof(event_dir_type) +
+    // sizeof(event_data)
+    return 17;
 }
 
-uint16_t Log::write (string filepath)
+uint16_t Log::read (istream& s)
 {
-    LogHeader hdr = {0};
-    ofstream f;
-    hdr.logid = logid;
-    hdr.timestamp = timestamp;
-    hdr.message_len = getlen(message);
-    hdr.debug_data_len = debug_data_len;
-    f.open(filepath.c_str(), ios::binary);
-    if (!f.good()) {
-        f.close();
+    if (!s.read((char*) &logid, sizeof(logid))) {
+        cerr << "DEBUG: failed to read log: logid" << endl;
         return 0;
     }
-    f.write((char*) &hdr, sizeof(hdr));
-    f.write((char*) message, hdr.message_len);
-    f.write((char*) &severity, sizeof(severity));
-    f.write((char*) &sensor_type, sizeof(sensor_type));
-    f.write((char*) &sensor_number, sizeof(sensor_number));
-    f.write((char*) debug_data, hdr.debug_data_len);
-    f.close();
+    if (!s.read((char*) &timestamp, sizeof(timestamp))) {
+        cerr << "DEBUG: failed to read log: timestamp" << endl;
+        return 0;
+    }
+    if (!s.read((char*) &severity, sizeof(severity))) {
+        cerr << "DEBUG: failed to read log: severity" << endl;
+        return 0;
+    }
+    if (!s.read((char*) &sensor_type, sizeof(sensor_type))) {
+        cerr << "DEBUG: failed to read log: sensor type" << endl;
+        return 0;
+    }
+    if (!s.read((char*) &sensor_number, sizeof(sensor_number))) {
+        cerr << "DEBUG: failed to read log: sensor number" << endl;
+        return 0;
+    }
+    if (!s.read((char*) &event_dir_type, sizeof(event_dir_type))) {
+        cerr << "DEBUG: failed to read log: event_dir_type" << endl;
+        return 0;
+    }
+    if (!s.read((char*) event_data, sizeof(event_data))) {
+        cerr << "DEBUG: failed to read log: event data" << endl;
+        return 0;
+    }
     return logid;
 }
 
-EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
-        uint8_t sensor_type, uint8_t sensor_number,
-        void (*on_create_log) (const Log* log),
-        void (*on_remove_log) (const Log* log))
+uint16_t Log::write (ostream& s)
 {
-    uint16_t x;
-    Log *log;
-    DIR *dir;
-    struct dirent *dirent;
-    LogIndex index;
-    eventpath = path;
+    if (!s.write((char*) &logid, sizeof(logid))) {
+        cerr << "DEBUG: failed to write log: logid" << endl;
+        return 0;
+    }
+    if (!s.write((char*) &timestamp, sizeof(timestamp))) {
+        cerr << "DEBUG: failed to write log: timestamp" << endl;
+        return 0;
+    }
+    if (!s.write((char*) &severity, sizeof(severity))) {
+        cerr << "DEBUG: failed to write log: severity" << endl;
+        return 0;
+    }
+    if (!s.write((char*) &sensor_type, sizeof(sensor_type))) {
+        cerr << "DEBUG: failed to write log: sensor type" << endl;
+        return 0;
+    }
+    if (!s.write((char*) &sensor_number, sizeof(sensor_number))) {
+        cerr << "DEBUG: failed to write log: sensor number" << endl;
+        return 0;
+    }
+    if (!s.write((char*) &event_dir_type, sizeof(event_dir_type))) {
+        cerr << "DEBUG: failed to write log: event_dir_type" << endl;
+        return 0;
+    }
+    if (!s.write((char*) event_data, sizeof(event_data))) {
+        cerr << "DEBUG: failed to write log: event data" << endl;
+        return 0;
+    }
+    return logid;
+}
+
+EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs)
+{
+    lock_path = path + "/lock";
+    logs_path = path + "/logs";
+    lockfd = -1;
     this->maxsize = -1;
     if (maxsize) {
         this->maxsize = maxsize;
@@ -76,30 +106,87 @@ EventManager::EventManager (string path, size_t maxsize, uint16_t maxlogs,
     if (maxlogs) {
         this->maxlogs = maxlogs;
     }
-    this->sensor_type = sensor_type;
-    this->sensor_number = sensor_number;
-    this->on_create_log = on_create_log;
-    this->on_remove_log = on_remove_log;
-    if ((dir = opendir(eventpath.c_str())) != NULL) {
-        while ((dirent = readdir(dir)) != NULL) {
-            x = (uint16_t) atoi(dirent->d_name);
-            if (x != 0 && open_log(x, &log) == x) {
-                index.logid = x;
-                index.timestamp = log->timestamp;
-                index.size = log->size();
-                logs.push_back(index);
-                close_log(log);
-            }
-        }
-        closedir(dir);
+    initialize_log_files();
+    initialize_log_index();
+}
+
+int EventManager::open_logs_file (void)
+{
+    if ((lockfd = open(lock_path.c_str(), 0)) == -1) {
+        lockfd = -1;
+        cerr << "DEBUG: failed to open logs: " << strerror(errno) << endl;
+        return -2;
+    }
+    if (flock(lockfd, LOCK_EX) != 0) {
+        cerr << "DEBUG: failed to open logs: " << strerror(errno) << endl;
+        close(lockfd);
+        lockfd = -1;
+        return -3;
+    }
+    logs_file.open(logs_path.c_str(), ios::in | ios::out | ios::binary);
+    if (!logs_file) {
+        cerr << "DEBUG: failed to open logs" << endl;
+        logs_file.clear();
+        close(lockfd);
+        lockfd = -1;
+        return -4;
+    }
+    return 0;
+}
+
+void EventManager::close_logs_file (void)
+{
+    if (logs_file.is_open()) {
+        logs_file.close();
+    }
+    logs_file.clear();
+    if (lockfd != -1) {
+        close(lockfd);
+        lockfd = -1;
     }
 }
 
-string EventManager::log_path (uint16_t logid)
+streampos EventManager::log_position (uint16_t logid)
 {
-    ostringstream path;
-    path << eventpath << "/" << logid;
-    return path.str();
+    return Log::size() * (logid - 1);
+}
+
+void EventManager::initialize_log_files (void)
+{
+    ofstream f;
+    f.open(lock_path.c_str());
+    if (!f) {
+        cerr << "DEBUG: failed to create lock file" << endl;
+        return;
+    }
+    f.close();
+    f.open(logs_path.c_str(), ios::app);
+    if (!f) {
+        cerr << "DEBUG: failed to create logs file" << endl;
+        return;
+    }
+    f.close();
+}
+
+void EventManager::initialize_log_index (void)
+{
+    Log log;
+    LogIndex index;
+    if (open_logs_file() != 0) {
+        cerr << "DEBUG: failed to initialize log index" << endl;
+        return;
+    }
+    while (logs_file && !logs_file.eof()) {
+        if (log.read(logs_file) == 0) {
+            cerr << "DEBUG: initializing log index: skip a log" << endl;
+            continue;
+        }
+        index.logid = log.logid;
+        index.timestamp = log.timestamp;
+        index.size = Log::size();
+        logs.push_back(index);
+    }
+    close_logs_file();
 }
 
 uint16_t EventManager::next_logid (void)
@@ -163,85 +250,95 @@ uint16_t EventManager::managed_count (void)
 
 size_t EventManager::managed_size (void)
 {
-    vector<LogIndex>::iterator iter;
-    size_t size;
-    size = 0;
-    for (iter = logs.begin() ; iter != logs.end() ; iter++) {
-        size += (*iter).size;
-    }
-    return size;
+    return Log::size() * managed_count();
 }
 
-uint16_t EventManager::open_log (uint16_t logid, Log** log)
+uint16_t EventManager::load_log (uint16_t logid, Log* log)
 {
-    ifstream f;
-    LogHeader hdr;
-    f.open(log_path(logid).c_str(), ios::binary);
-    if (!f.good()) {
+    if (open_logs_file() != 0) {
+        cerr << "DEBUG: failed to load log " << logid << endl;
         return 0;
     }
-    *log = new Log;
-    f.read((char*) &hdr, sizeof(hdr));
-    (*log)->logid = hdr.logid;
-    (*log)->timestamp = hdr.timestamp;
-    (*log)->message = new char[hdr.message_len];
-    f.read((*log)->message, hdr.message_len);
-    f.read((char*) &(*log)->severity, sizeof((*log)->severity));
-    f.read((char*) &(*log)->sensor_type, sizeof((*log)->sensor_type));
-    f.read((char*) &(*log)->sensor_number, sizeof((*log)->sensor_number));
-    (*log)->debug_data = new uint8_t[hdr.debug_data_len];
-    f.read((char*) (*log)->debug_data, hdr.debug_data_len);
-    (*log)->debug_data_len = hdr.debug_data_len;
-    f.close();
+    logs_file.seekg(log_position(logid));
+    if (!logs_file) {
+        cerr << "DEBUG: failed to load log " << logid << ": seek" << endl;
+        close_logs_file();
+        return 0;
+    }
+    if (log->read(logs_file) != logid) {
+        cerr << "DEBUG: failed to load log " << logid << endl;
+        close_logs_file();
+        return 0;
+    }
+    close_logs_file();
     return logid;
 }
 
-void EventManager::close_log (Log* log)
+uint16_t EventManager::save_log (Log* log)
 {
-    delete[] log->message;
-    delete[] log->debug_data;
-    delete log;
+    if (open_logs_file() != 0) {
+        cerr << "DEBUG: failed to save log " << log->logid << endl;
+        return 0;
+    }
+    logs_file.seekp(log_position(log->logid));
+    if (!logs_file) {
+        cerr << "DEBUG: failed to save log " << log->logid << ": seek" << endl;
+        close_logs_file();
+        return 0;
+    }
+    if (log->write(logs_file) != log->logid) {
+        cerr << "DEBUG: failed to save log " << log->logid << endl;
+        close_logs_file();
+        return 0;
+    }
+    close_logs_file();
+    return log->logid;
+}
+
+void EventManager::nullify_log (uint16_t logid)
+{
+    if (open_logs_file() != 0) {
+        cerr << "DEBUG: failed to nullify log " << logid << endl;
+        return;
+    }
+    logs_file.seekp(log_position(logid));
+    if (!logs_file) {
+        cerr << "DEBUG: failed to nullify log " << logid << ": seek" << endl;
+        close_logs_file();
+        return;
+    }
+    if (BLANK_LOG.write(logs_file) != BLANK_LOG.logid) {
+        cerr << "DEBUG: failed to nullify log " << logid << endl;
+        close_logs_file();
+        return;
+    }
+    close_logs_file();
 }
 
 uint16_t EventManager::create_log (Log* log)
 {
-    size_t size;
     uint16_t eldest_logid;
     LogIndex index;
-    size = log->size();
-    if (maxsize < size) {
-        cerr << "DEBUG: log too big to be stored" << endl;
+    if (maxsize < Log::size()) {
+        cerr << "DEBUG: failed to create log: log is too large" << endl;
         return 0;
     }
-    while (!(managed_size() + size <= maxsize &&
+    while (!(managed_size() + Log::size() <= maxsize &&
                 managed_count() + 1 <= maxlogs)) {
         eldest_logid = this->eldest_logid();
         remove_log(eldest_logid);
     }
     log->logid = next_logid();
     gettimeofday(&log->timestamp, NULL);
-    if (log->write(log_path(log->logid)) != log->logid) {
-        cerr << "DEBUG: fail to write log file" << endl;
+    if (save_log(log) != log->logid) {
+        cerr << "DEBUG: failed to create log" << endl;
         return 0;
     }
     index.logid = log->logid;
     index.timestamp = log->timestamp;
-    index.size = size;
+    index.size = Log::size();
     logs.push_back(index);
-    if (on_create_log) {
-        on_create_log(log);
-    }
     return log->logid;
-}
-
-uint8_t EventManager::get_sensor_number (void)
-{
-    return sensor_number;
-}
-
-uint8_t EventManager::get_sensor_type (void)
-{
-    return sensor_type;
 }
 
 void EventManager::remove_all_logs (void)
@@ -250,29 +347,16 @@ void EventManager::remove_all_logs (void)
     Log *log;
     while (!logs.empty()) {
         index = logs.back();
-        if (on_remove_log) {
-            if (open_log(index.logid, &log) == index.logid) {
-                on_remove_log(log);
-                close_log(log);
-            }
-        }
-        remove(log_path(index.logid).c_str());
+        nullify_log(index.logid);
         logs.pop_back();
     }
 }
 
 void EventManager::remove_log (uint16_t logid)
 {
-    Log *log;
     LogIndex index;
     pair<vector<LogIndex>::iterator, vector<LogIndex>::iterator> bounds;
-    if (on_remove_log) {
-        if (open_log(logid, &log) == logid) {
-            on_remove_log(log);
-            close_log(log);
-        }
-    }
-    remove(log_path(logid).c_str());
+    nullify_log(logid);
     sort(logs.begin(), logs.end(), LogIndex::compare_by_logid);
     index.logid = logid;
     bounds = equal_range(logs.begin(), logs.end(), index,
@@ -282,23 +366,19 @@ void EventManager::remove_log (uint16_t logid)
     }
 }
 
-uint16_t message_log_clear_all (EventManager* em)
+uint16_t message_log_clear_all (EventManager* em, uint8_t sensor_number)
 {
     Log log = {
-        .message = (char*) "Clear all logs",
+        .logid = 0,
+        .timestamp = {0, 0},
         .severity = SEVERITY_INFO,
-        .sensor_type = em->get_sensor_type(),
-        .sensor_number = em->get_sensor_number(),
-        .debug_data = NULL,
-        .debug_data_len = 0,
+        .sensor_type = 0x10,
+        .sensor_number = sensor_number,
+        .event_dir_type = 0x6F,
+        .event_data = {0x02, 0x00, 0x00},
     };
     em->remove_all_logs();
     return em->create_log(&log);
-}
-
-void message_log_close (EventManager* em, Log* log)
-{
-    em->close_log(log);
 }
 
 uint16_t message_log_create (EventManager* em, Log* log)
@@ -329,9 +409,4 @@ int message_log_get_all_logids (EventManager* em, uint16_t** logids,
         (*logids)[i] = *iter;
     }
     return 0;
-}
-
-uint16_t message_log_open (EventManager* em, uint16_t logid, Log** log)
-{
-    return em->open_log(logid, log);
 }
