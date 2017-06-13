@@ -7,88 +7,111 @@
 #include <fstream>
 #include <ios>
 #include <istream>
+#include <list>
 #include <ostream>
 #include <string>
-#include <vector>
 #endif
 
 typedef struct Log {
-    int16_t logid;
-    struct timeval timestamp;
-    uint8_t severity;
-    // value of severity levels are taken from syslog
-    #define SEVERITY_INFO 6
-    #define SEVERITY_WARN 4
-    #define SEVERITY_CRIT 2
-    uint8_t sensor_type;
-    uint8_t sensor_number;
-    uint8_t event_dir_type;
-    uint8_t event_data[3];
+    uint64_t logical_timestamp;
+    #define LOG_ID_MAX_LENGTH 20
+    char id[LOG_ID_MAX_LENGTH];
+    #define LOG_NAME_MAX_LENGTH 32
+    char name[LOG_NAME_MAX_LENGTH];
+    #define LOG_RECORD_ID_MAX_LENGTH 20
+    char record_id[LOG_RECORD_ID_MAX_LENGTH];
+    #define LOG_SEVERITY_MAX_LENGTH 16
+    char severity[LOG_SEVERITY_MAX_LENGTH];
+    #define LOG_SEVERITY_CRIT "Critical"
+    #define LOG_SEVERITY_INFO "Info"
+    #define LOG_SEVERITY_OKAY "OK"
+    #define LOG_SEVERITY_WARN "Warning"
+    #define LOG_CREATED_MAX_LENGTH 32
+    char created[LOG_CREATED_MAX_LENGTH];
+    #define LOG_ENTRY_TYPE_MAX_LENGTH 32
+    char entry_type[LOG_ENTRY_TYPE_MAX_LENGTH];
+    #define LOG_ENTRY_CODE_MAX_LENGTH 32
+    char entry_code[LOG_ENTRY_CODE_MAX_LENGTH];
+    #define LOG_SENSOR_TYPE_MAX_LENGTH 32
+    char sensor_type[LOG_SENSOR_TYPE_MAX_LENGTH];
+    #define LOG_SENSOR_NUMBER_MAX_LENGTH 8
+    char sensor_number[LOG_SENSOR_NUMBER_MAX_LENGTH];
+    #define LOG_MESSAGE_MAX_LENGTH 256
+    char message[LOG_MESSAGE_MAX_LENGTH];
+    #define LOG_EVENT_DATA_MAX_LENGTH 8
+    char event_data_1[LOG_EVENT_DATA_MAX_LENGTH];
+    char event_data_2[LOG_EVENT_DATA_MAX_LENGTH];
+    char event_data_3[LOG_EVENT_DATA_MAX_LENGTH];
 
 #ifdef __cplusplus
-    static size_t size (void);
+    size_t size (void);
 
-    uint16_t read (std::istream& s);
-    uint16_t write (std::ostream& s);
+    int read (std::istream& s);
+    int write (std::ostream& s);
 #endif
 } Log;
 
 #ifdef __cplusplus
-struct LogIndex {
-    uint16_t logid;
-    struct timeval timestamp;
+class LogIndex {
+public:
+    uint64_t logical_timestamp;
+    uint16_t record_id;
     size_t size;
 
-    static bool compare_by_logid (LogIndex a, LogIndex b)
+    static bool compare_by_logical_timestamp (LogIndex a, LogIndex b)
     {
-        return a.logid < b.logid;
-    }
-
-    static bool compare_by_timestamp (LogIndex a, LogIndex b)
-    {
-        return (a.timestamp.tv_sec < b.timestamp.tv_sec) ||
-            (a.timestamp.tv_sec == b.timestamp.tv_sec &&
-             a.timestamp.tv_usec < b.timestamp.tv_usec);
+        return a.logical_timestamp < b.logical_timestamp;
     }
 };
 
 class EventManager {
 private:
+    std::string log_dir_path;
     std::string lock_path;
-    std::string logs_path;
-    int lockfd;
-    std::fstream logs_file;
-    size_t maxsize;
-    uint16_t maxlogs;
-    std::vector<LogIndex> logs;
+    std::string metadata_path;
+    int lock_fd;
+    uint64_t logical_clock;
+    uint16_t max_logs;
+    size_t max_size;
+    std::list<LogIndex> logs;
+    uint8_t rollover;
 
-    int open_logs_file (void);
-    void close_logs_file (void);
-    std::streampos log_position (uint16_t logid);
-
-    void initialize_log_files (void);
-    void initialize_log_index (void);
-    uint16_t next_logid (void);
+    int acquire_lock (void);
+    uint16_t autofill_log (Log* log);
+    int check_sanity (void);
+    int initialize_index (void);
+    int initialize_lock (void);
+    int initialize_metadata (void);
+    std::string log_path (uint64_t logical_timestamp);
+    uint64_t next_logical_timestamp (void);
+    uint16_t next_record_id (void);
+    int release_lock (void);
+    int remove_log (uint64_t logical_timestamp);
+    int set_rollover_count (uint8_t rollover);
 
 public:
-    EventManager (std::string path, size_t maxsize, uint16_t maxlogs);
+    EventManager (
+            std::string log_dir_path,
+            std::string lock_path,
+            std::string metadata_path,
+            uint16_t max_logs,
+            size_t max_size);
 
     /* log information retrieval */
-    std::vector<uint16_t> logids (void);
-    uint16_t eldest_logid (void);
-    uint16_t latest_logid (void);
+    uint16_t latest_record_id (void);
     uint16_t managed_count (void);
     size_t managed_size (void);
+    std::list<uint16_t> record_ids (void);
+    uint8_t rollover_count (void);
+    std::list<uint64_t> timestamps (void);
 
     /* low-level log manipulation */
-    uint16_t load_log (uint16_t logid, Log* log);
-    uint16_t save_log (Log* log);
-    void nullify_log (uint16_t logid);
+    int load_log (uint64_t logical_timestamp, Log* log);
+    int save_log (Log* log);
 
     /* high-level log manipulation */
     uint16_t create_log (Log* log);
-    void remove_all_logs (void);
-    void remove_log (uint16_t logid);
+    int remove_all_logs (void);
 };
 #else
 typedef struct EventManager EventManager;
@@ -97,11 +120,14 @@ typedef struct EventManager EventManager;
 #ifdef __cplusplus
 extern "C" {
 #endif
-uint16_t message_log_clear_all (EventManager* em, uint8_t sensor_number);
-uint16_t message_log_create (EventManager* em, Log* log);
-void message_log_delete (EventManager* em, uint16_t logid);
-int message_log_get_all_logids (EventManager* em, uint16_t** logids,
+uint16_t message_clear_all (EventManager* em, uint8_t sensor_number);
+uint16_t message_create (EventManager* em, Log* log);
+int message_get_record_ids_and_logical_timestamps (
+        EventManager* em,
+        uint16_t** record_ids,
+        uint64_t** timestamps,
         uint16_t* count);
+uint8_t message_get_rollover_count (EventManager* em);
 #ifdef __cplusplus
 }
 #endif

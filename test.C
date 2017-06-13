@@ -13,156 +13,152 @@
 
 using namespace std;
 
-const string EVENTSPATH = "./events";
+const string LOCK_PATH = "./events.lock";
+const string LOG_DIR_PATH = "./events";
+const string METADATA_PATH = "./events.metadata";
 
-static void test_suite_build_log (
-        Log* log,
-        uint8_t severity,
-        uint8_t sensor_type,
-        uint8_t sensor_number,
-        uint8_t event_dir_type,
-        uint8_t event_data[3])
+static void test_suite_build_log (Log* log, uint8_t event_data_1)
 {
-    log->severity = severity;
-    log->sensor_type = sensor_type;
-    log->sensor_number = sensor_number;
-    log->event_dir_type = event_dir_type;
-    memcpy(log->event_data, event_data, sizeof(event_data));
+    strcpy(log->severity, "Severity");
+    strcpy(log->entry_type, "Entry Type");
+    strcpy(log->entry_code, "Entry Code");
+    strcpy(log->sensor_type, "Sensor Type");
+    strcpy(log->sensor_number, "0x80");
+    strcpy(log->message, "Message");
+    sprintf(log->event_data_1, "0x%02X", event_data_1);
+    strcpy(log->event_data_2, "0xFF");
+    strcpy(log->event_data_3, "0xFF");
 }
 
 static void test_suite_setup (void)
 {
     char *cmd;
-    asprintf(&cmd, "exec rm -r %s 2> /dev/null", EVENTSPATH.c_str());
+    asprintf(&cmd, "exec rm -r %s 2> /dev/null", LOCK_PATH.c_str());
     system(cmd);
     free(cmd);
-    asprintf(&cmd, "exec mkdir %s 2> /dev/null", EVENTSPATH.c_str());
+    asprintf(&cmd, "exec rm -rf %s 2> /dev/null", LOG_DIR_PATH.c_str());
+    system(cmd);
+    free(cmd);
+    asprintf(&cmd, "exec rm -r %s 2> /dev/null", METADATA_PATH.c_str());
+    system(cmd);
+    free(cmd);
+    asprintf(&cmd, "exec mkdir %s 2> /dev/null", LOG_DIR_PATH.c_str());
     system(cmd);
     free(cmd);
 }
 
 static void test_suite (void)
 {
-    uint8_t P[3] = {0x3, 0x32, 0x34};
-    Log REC1;
-    Log REC2;
-    vector<uint16_t> logids;
+    Log LOG1;
+    Log LOG2;
+    vector<uint16_t> record_ids;
 
-    test_suite_build_log(&REC1, SEVERITY_INFO, 0xCD, 0xAB, 0xEF, P);
-    test_suite_build_log(&REC2, SEVERITY_INFO, 0xCD, 0xAB, 0xEF, P);
+    test_suite_build_log(&LOG1, 0x01);
+    test_suite_build_log(&LOG2, 0x02);
 
-    /* TEST: build 2 logs and verify their content. */
+    /* TEST: add 2 logs and verify their content. */
     Log log;
     test_suite_setup();
-    EventManager em0(EVENTSPATH, 0, 0);
-    assert(em0.create_log(&REC1) == 1);
-    assert(em0.managed_size() == 17);
+    EventManager em0(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 0, 0);
+    assert(em0.create_log(&LOG1) == 1);
+    assert(em0.managed_size() == 104);
     assert(em0.managed_count() == 1);
-    assert(em0.latest_logid() == 1);
-    assert(em0.create_log(&REC2) == 2);
-    assert(em0.managed_size() == 34);
+    assert(em0.latest_record_id() == 1);
+    assert(em0.create_log(&LOG2) == 2);
+    assert(em0.managed_size() == 208);
     assert(em0.managed_count() == 2);
-    assert(em0.latest_logid() == 2);
-    assert(em0.load_log(1, &log) == 1);
-    assert(log.severity == SEVERITY_INFO);
-    assert(log.sensor_type == 0xCD);
-    assert(log.sensor_number == 0xAB);
-    assert(log.event_dir_type == 0xEF);
-    assert(log.event_data[0] == 0x3);
-    assert(log.event_data[1] == 0x32);
-    assert(log.event_data[2] == 0x34);
-    assert(log.logid == 1);
-    assert(em0.load_log(2, &log) == 2);
+    assert(em0.latest_record_id() == 2);
+    assert(em0.load_log(1, &log) == 0);
+    assert(log.logical_timestamp == 1);
+    assert(strcmp(log.id, "1") == 0);
+    assert(strcmp(log.name, "Log Entry 1") == 0);
+    assert(strcmp(log.record_id, "1") == 0);
+    assert(strcmp(log.severity, "Severity") == 0);
+    assert(strcmp(log.entry_type, "Entry Type") == 0);
+    assert(strcmp(log.entry_code, "Entry Code") == 0);
+    assert(strcmp(log.sensor_type, "Sensor Type") == 0);
+    assert(strcmp(log.sensor_number, "0x80") == 0);
+    assert(strcmp(log.message, "Message") == 0);
+    assert(strcmp(log.event_data_1, "0x01") == 0);
+    assert(strcmp(log.event_data_2, "0xFF") == 0);
+    assert(strcmp(log.event_data_3, "0xFF") == 0);
 
-    /* TEST: log count, ID, and size should persist across event manager. */
-    EventManager em1(EVENTSPATH, 0, 0);
-    assert(em1.managed_size() == 34);
+    /* TEST: log count, record ID, and size should persist. */
+    EventManager em1(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 0, 0);
+    assert(em1.managed_size() == 208);
     assert(em1.managed_count() == 2);
-    assert(em1.latest_logid() == 2);
+    assert(em1.latest_record_id() == 2);
 
-    /* TEST: max limits. */
+    /* TEST: max size. */
     test_suite_setup();
-    EventManager em2(EVENTSPATH, 16, 0);
-    assert(em2.create_log(&REC1) == 0);
+    EventManager em2(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 0, 10);
+    assert(em2.create_log(&LOG1) == 0);
 
-    /* TEST: next log ID is derived from the latest log. */
+    /* TEST: next record ID is derived from the latest log. */
     test_suite_setup();
-    EventManager em3(EVENTSPATH, 0, 4);
-    assert(em3.create_log(&REC1) == 1);
-    assert(em3.create_log(&REC1) == 2);
-    assert(em3.create_log(&REC1) == 3);
-    em3.remove_log(2);
-    assert(em3.create_log(&REC1) == 4);
-    assert(em3.create_log(&REC1) == 2);
+    EventManager em3(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 4, 0);
+    assert(em3.create_log(&LOG1) == 1);
+    assert(em3.create_log(&LOG1) == 2);
+    assert(em3.create_log(&LOG1) == 3);
+    assert(em3.create_log(&LOG1) == 4);
+    assert(em3.create_log(&LOG1) == 1);
 
-    /* TEST: circular event log. */
+    /* TEST: circular event log, rollover count, and timestamp. */
     test_suite_setup();
-    EventManager em4(EVENTSPATH, 0, 4);
-    assert(em4.create_log(&REC1) == 1);
-    assert(em4.create_log(&REC1) == 2);
-    assert(em4.create_log(&REC1) == 3);
-    assert(em4.create_log(&REC1) == 4);
-    assert(em4.create_log(&REC1) == 1);
-    assert(em4.create_log(&REC1) == 2);
-    assert(em4.create_log(&REC1) == 3);
-    assert(em4.create_log(&REC1) == 4);
-    assert(em4.create_log(&REC1) == 1);
-    assert(em4.create_log(&REC1) == 2);
-    assert(em4.create_log(&REC1) == 3);
-    assert(em4.create_log(&REC1) == 4);
+    EventManager em4(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 4, 0);
+    assert(em4.rollover_count() == 0);
+    assert(em4.create_log(&LOG1) == 1);
+    assert(LOG1.logical_timestamp == 1);
+    assert(em4.rollover_count() == 0);
+    assert(em4.create_log(&LOG1) == 2);
+    assert(LOG1.logical_timestamp == 2);
+    assert(em4.rollover_count() == 0);
+    assert(em4.create_log(&LOG1) == 3);
+    assert(LOG1.logical_timestamp == 3);
+    assert(em4.rollover_count() == 0);
+    assert(em4.create_log(&LOG1) == 4);
+    assert(LOG1.logical_timestamp == 4);
+    assert(em4.rollover_count() == 0);
+    assert(em4.create_log(&LOG1) == 1);
+    assert(LOG1.logical_timestamp == 5);
+    assert(em4.rollover_count() == 1);
+    assert(em4.create_log(&LOG1) == 2);
+    assert(LOG1.logical_timestamp == 6);
+    assert(em4.rollover_count() == 1);
+    assert(em4.create_log(&LOG1) == 3);
+    assert(LOG1.logical_timestamp == 7);
+    assert(em4.rollover_count() == 1);
+    assert(em4.create_log(&LOG1) == 4);
+    assert(LOG1.logical_timestamp == 8);
+    assert(em4.rollover_count() == 1);
+    assert(em4.create_log(&LOG1) == 1);
+    assert(LOG1.logical_timestamp == 9);
+    assert(em4.rollover_count() == 2);
+    assert(em4.create_log(&LOG1) == 2);
+    assert(LOG1.logical_timestamp == 10);
+    assert(em4.rollover_count() == 2);
+    assert(em4.create_log(&LOG1) == 3);
+    assert(LOG1.logical_timestamp == 11);
+    assert(em4.rollover_count() == 2);
+    assert(em4.create_log(&LOG1) == 4);
+    assert(LOG1.logical_timestamp == 12);
+    assert(em4.rollover_count() == 2);
 
-    /* TEST: circular event log and random deletion. */
-    test_suite_setup();
-    EventManager em5(EVENTSPATH, 0, 4);
-    assert(em5.create_log(&REC1) == 1);
-    assert(em5.create_log(&REC1) == 2);
-    assert(em5.create_log(&REC1) == 3);
-    assert(em5.create_log(&REC1) == 4);
-    logids = em5.logids();
-    assert(logids.size() == 4);
-    assert(logids[0] == 1);
-    assert(logids[1] == 2);
-    assert(logids[2] == 3);
-    assert(logids[3] == 4);
-    em5.remove_log(2);
-    em5.remove_log(3);
-    logids = em5.logids();
-    assert(logids.size() == 2);
-    assert(logids[0] == 1);
-    assert(logids[1] == 4);
-    assert(em5.create_log(&REC1) == 2);
-    assert(em5.create_log(&REC1) == 3);
-    assert(em5.create_log(&REC1) == 1);
-    assert(em5.create_log(&REC1) == 4);
-    logids = em5.logids();
-    assert(logids.size() == 4);
-    assert(logids[0] == 2);
-    assert(logids[1] == 3);
-    assert(logids[2] == 1);
-    assert(logids[3] == 4);
+    /* TEST: rollover count should persist. */
+    EventManager em5(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 0, 0);
+    assert(em5.rollover_count() == 2);
 
-    /* TEST: individual removal. */
+    /* TEST: remove all and rollover count. */
     test_suite_setup();
-    EventManager em6(EVENTSPATH, 0, 3);
-    assert(em6.create_log(&REC1) == 1);
-    assert(em6.create_log(&REC1) == 2);
-    assert(em6.create_log(&REC1) == 3);
-    em6.remove_log(2);
-    assert(em6.managed_count() == 2);
-    em6.remove_log(3);
-    assert(em6.managed_count() == 1);
-    em6.remove_log(1);
-    assert(em6.managed_count() == 0);
-    em6.remove_log(1);
-
-    /* TEST: remove all. */
-    test_suite_setup();
-    EventManager em7(EVENTSPATH, 0, 0);
-    assert(em7.create_log(&REC1) == 1);
-    assert(em7.create_log(&REC1) == 2);
-    assert(em7.create_log(&REC1) == 3);
+    EventManager em7(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 4, 0);
+    assert(em7.create_log(&LOG1) == 1);
+    assert(em7.create_log(&LOG1) == 2);
+    assert(em7.create_log(&LOG1) == 3);
+    assert(em7.create_log(&LOG1) == 4);
+    assert(em7.create_log(&LOG1) == 1);
     em7.remove_all_logs();
     assert(em7.managed_count() == 0);
+    assert(em7.rollover_count() == 0);
 }
 
 static void test_suite_systemd (void)
@@ -170,69 +166,38 @@ static void test_suite_systemd (void)
     sd_bus *bus = NULL;
     sd_bus_error error = SD_BUS_ERROR_NULL;
     sd_bus_message *res = NULL;
-    uint16_t logid1;
-    uint16_t logid2;
-    char log_path[64];
-    const uint16_t *logids;
-    size_t logid_count;
+    uint16_t record_id_1;
+    uint16_t record_id_2;
+    const uint16_t *record_ids;
+    const uint64_t *timestamps;
+    size_t log_count;
+    uint8_t rollover_count;
 
     /* SETUP SD-BUS */
     assert(0 <= sd_bus_open_system(&bus));
 
-    /* TEST: method acceptBMCMessage */
+    /* TEST: method create */
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage",
+                "create",
                 &error,
                 &res,
-                "yyyyyyy",
-                SEVERITY_INFO,
-                0xCD,
-                0xAB,
-                0xEF,
-                0x12,
-                0x34,
-                0x56));
-    assert(0 <= sd_bus_message_read(res, "q", &logid1));
+                "sssssssss",
+                "Severity",
+                "Entry Type",
+                "Entry Code",
+                "Sensor Type",
+                "0x80",
+                "Message",
+                "0xFF",
+                "0xFF",
+                "0xFF"));
+    assert(0 <= sd_bus_message_read(res, "q", &record_id_1));
     sd_bus_message_unref(res);
-    assert(logid1 != 0);
-
-    /* TEST: method acceptBMCMessage should accept limited severity */
-    assert(sd_bus_call_method(
-                bus,
-                "org.openbmc.records.events",
-                "/org/openbmc/records/events",
-                "org.openbmc.recordlog",
-                "acceptBMCMessage",
-                &error,
-                &res,
-                "yyyyyyy",
-                99,
-                0xCD,
-                0xAB,
-                0xEF,
-                0x12,
-                0x34,
-                0x56) < 0);
-    sd_bus_error_free(&error);
-
-    /* TEST: method delete */
-    assert(0 <= sd_bus_call_method(
-                bus,
-                "org.openbmc.records.events",
-                "/org/openbmc/records/events",
-                "org.openbmc.recordlog",
-                "delete",
-                &error,
-                &res,
-                "q",
-                logid1));
-    sd_bus_message_unref(res);
-    snprintf(log_path, 64, "/var/lib/obmc/events/%d", logid1);
-    assert(access(log_path, F_OK) != 0);
+    assert(record_id_1 != 0);
 
     /* TEST: method clear */
     assert(0 <= sd_bus_call_method(
@@ -240,39 +205,43 @@ static void test_suite_systemd (void)
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage",
+                "create",
                 &error,
                 &res,
-                "yyyyyyy",
-                SEVERITY_INFO,
-                0xCD,
-                0xAB,
-                0xEF,
-                0x12,
-                0x34,
-                0x56));
-    assert(0 <= sd_bus_message_read(res, "q", &logid1));
+                "sssssssss",
+                "Severity",
+                "Entry Type",
+                "Entry Code",
+                "Sensor Type",
+                "0x80",
+                "Message",
+                "0xFF",
+                "0xFF",
+                "0xFF"));
+    assert(0 <= sd_bus_message_read(res, "q", &record_id_1));
     sd_bus_message_unref(res);
-    assert(logid1 != 0);
+    assert(record_id_1 != 0);
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage",
+                "create",
                 &error,
                 &res,
-                "yyyyyyy",
-                SEVERITY_INFO,
-                0xCD,
-                0xAB,
-                0xEF,
-                0x12,
-                0x34,
-                0x56));
-    assert(0 <= sd_bus_message_read(res, "q", &logid2));
+                "sssssssss",
+                "Severity",
+                "Entry Type",
+                "Entry Code",
+                "Sensor Type",
+                "0x80",
+                "Message",
+                "0xFF",
+                "0xFF",
+                "0xFF"));
+    assert(0 <= sd_bus_message_read(res, "q", &record_id_2));
     sd_bus_message_unref(res);
-    assert(logid2 != 0);
+    assert(record_id_2 != 0);
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
@@ -284,77 +253,82 @@ static void test_suite_systemd (void)
                 "y",
                 0x80));
     sd_bus_message_unref(res);
-    snprintf(log_path, 64, "/var/lib/obmc/events/%d", logid2);
-    assert(access(log_path, F_OK) != 0);
+
+    /* TEST: method get_record_ids_and_logical_timestamps */
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "getAllLogIds",
+                "create",
+                &error,
+                &res,
+                "sssssssss",
+                "Severity",
+                "Entry Type",
+                "Entry Code",
+                "Sensor Type",
+                "0x80",
+                "Message",
+                "0xFF",
+                "0xFF",
+                "0xFF"));
+    assert(0 <= sd_bus_message_read(res, "q", &record_id_1));
+    sd_bus_message_unref(res);
+    assert(record_id_1 != 0);
+    assert(0 <= sd_bus_call_method(
+                bus,
+                "org.openbmc.records.events",
+                "/org/openbmc/records/events",
+                "org.openbmc.recordlog",
+                "create",
+                &error,
+                &res,
+                "sssssssss",
+                "Severity",
+                "Entry Type",
+                "Entry Code",
+                "Sensor Type",
+                "0x80",
+                "Message",
+                "0xFF",
+                "0xFF",
+                "0xFF"));
+    assert(0 <= sd_bus_message_read(res, "q", &record_id_2));
+    sd_bus_message_unref(res);
+    assert(record_id_2 != 0);
+    assert(0 <= sd_bus_call_method(
+                bus,
+                "org.openbmc.records.events",
+                "/org/openbmc/records/events",
+                "org.openbmc.recordlog",
+                "get_record_ids_and_logical_timestamps",
                 &error,
                 &res,
                 NULL));
     assert(0 <= sd_bus_message_read_array(res, SD_BUS_TYPE_UINT16,
-                (const void**) &logids, &logid_count));
-    logid_count /= sizeof(uint16_t);
-    assert(logid_count == 1);
+                (const void**) &record_ids, &log_count));
+    assert(0 <= sd_bus_message_read_array(res, SD_BUS_TYPE_UINT64,
+                (const void**) &timestamps, &log_count));
+    log_count /= sizeof(uint64_t);
+    assert(log_count == 3); // the first log is "clearing all logs"
+    assert(record_ids[1] == record_id_1);
+    assert(record_ids[2] == record_id_2);
     sd_bus_message_unref(res);
 
-    /* TEST: method getAllLogIds */
+    /* TEST: method get_rollover_count */
+    rollover_count = 0xFF;
     assert(0 <= sd_bus_call_method(
                 bus,
                 "org.openbmc.records.events",
                 "/org/openbmc/records/events",
                 "org.openbmc.recordlog",
-                "acceptBMCMessage",
-                &error,
-                &res,
-                "yyyyyyy",
-                SEVERITY_INFO,
-                0xCD,
-                0xAB,
-                0xEF,
-                0x12,
-                0x34,
-                0x56));
-    assert(0 <= sd_bus_message_read(res, "q", &logid1));
-    sd_bus_message_unref(res);
-    assert(logid1 != 0);
-    assert(0 <= sd_bus_call_method(
-                bus,
-                "org.openbmc.records.events",
-                "/org/openbmc/records/events",
-                "org.openbmc.recordlog",
-                "acceptBMCMessage",
-                &error,
-                &res,
-                "yyyyyyy",
-                SEVERITY_INFO,
-                0xCD,
-                0xAB,
-                0xEF,
-                0x12,
-                0x34,
-                0x56));
-    assert(0 <= sd_bus_message_read(res, "q", &logid2));
-    sd_bus_message_unref(res);
-    assert(logid2 != 0);
-    assert(0 <= sd_bus_call_method(
-                bus,
-                "org.openbmc.records.events",
-                "/org/openbmc/records/events",
-                "org.openbmc.recordlog",
-                "getAllLogIds",
+                "get_rollover_count",
                 &error,
                 &res,
                 NULL));
-    assert(0 <= sd_bus_message_read_array(res, SD_BUS_TYPE_UINT16,
-                (const void**) &logids, &logid_count));
-    logid_count /= sizeof(uint16_t);
-    assert(logid_count == 3); // the first log is "clearing all logs"
-    assert(logids[1] == logid1);
-    assert(logids[2] == logid2);
+    assert(0 <= sd_bus_message_read(res, "y", &rollover_count));
+    assert(rollover_count == 0);
     sd_bus_message_unref(res);
 
     /* TEARDOWN SD-BUS */

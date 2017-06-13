@@ -5,7 +5,9 @@
 
 using namespace std;
 
-static const char *EVENTPATH = "/var/lib/obmc/events";
+static const char *LOCK_PATH = "/var/lib/obmc/events.lock";
+static const char *LOG_DIR_PATH = "/var/lib/obmc/events";
+static const char *METADATA_PATH = "/var/lib/obmc/events.metadata";
 
 static void print_usage (void)
 {
@@ -15,19 +17,19 @@ static void print_usage (void)
 
 int main (int argc, char *argv[])
 {
-    size_t maxsize;
-    uint16_t maxlogs;
+    size_t max_size;
+    uint16_t max_logs;
     int c;
     int err;
-    maxsize = 0;
-    maxlogs = 0;
+    max_size = 0;
+    max_logs = 0;
     while ((c = getopt(argc, argv, "s:t:")) != -1) {
         switch (c) {
             case 's':
-                maxsize = (size_t) strtoul(optarg, NULL, 10);
+                max_size = (size_t) strtoul(optarg, NULL, 10);
                 break;
             case 't':
-                maxlogs = (uint16_t) strtoul(optarg, NULL, 10);
+                max_logs = (uint16_t) strtoul(optarg, NULL, 10);
                 break;
             case 'h':
             case '?':
@@ -35,7 +37,7 @@ int main (int argc, char *argv[])
                 return 1;
         }
     }
-    EventManager em(EVENTPATH, maxsize, maxlogs);
+    EventManager em(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, max_logs, max_size);
     if ((err = bus_build(&em)) == 0) {
         bus_mainloop();
         bus_cleaup();
