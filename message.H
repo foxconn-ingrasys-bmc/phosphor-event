@@ -30,7 +30,7 @@ typedef struct Log {
     char created[LOG_CREATED_MAX_LENGTH];
     #define LOG_ENTRY_TYPE_MAX_LENGTH 32
     char entry_type[LOG_ENTRY_TYPE_MAX_LENGTH];
-    #define LOG_ENTRY_CODE_MAX_LENGTH 32
+    #define LOG_ENTRY_CODE_MAX_LENGTH 128
     char entry_code[LOG_ENTRY_CODE_MAX_LENGTH];
     #define LOG_SENSOR_TYPE_MAX_LENGTH 32
     char sensor_type[LOG_SENSOR_TYPE_MAX_LENGTH];
@@ -38,10 +38,8 @@ typedef struct Log {
     char sensor_number[LOG_SENSOR_NUMBER_MAX_LENGTH];
     #define LOG_MESSAGE_MAX_LENGTH 256
     char message[LOG_MESSAGE_MAX_LENGTH];
-    #define LOG_EVENT_DATA_MAX_LENGTH 8
-    char event_data_1[LOG_EVENT_DATA_MAX_LENGTH];
-    char event_data_2[LOG_EVENT_DATA_MAX_LENGTH];
-    char event_data_3[LOG_EVENT_DATA_MAX_LENGTH];
+    #define LOG_RAW_DATA_MAX_LENGTH 128
+    char raw_data[LOG_RAW_DATA_MAX_LENGTH];
 
 #ifdef __cplusplus
     size_t size (void);

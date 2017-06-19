@@ -29,9 +29,7 @@ size_t Log::size (void)
         strlen(sensor_type) + 1 +
         strlen(sensor_number) + 1 +
         strlen(message) + 1 +
-        strlen(event_data_1) + 1 +
-        strlen(event_data_2) + 1 +
-        strlen(event_data_3) + 1;
+        strlen(raw_data) + 1;
 }
 
 int Log::read (istream& s)
@@ -76,17 +74,9 @@ int Log::read (istream& s)
         cerr << "DEBUG: failed to read log: message" << endl;
         return -10;
     }
-    if (!s.getline(event_data_1, LOG_EVENT_DATA_MAX_LENGTH)) {
-        cerr << "DEBUG: failed to read log: event_data_1" << endl;
+    if (!s.getline(raw_data, LOG_RAW_DATA_MAX_LENGTH)) {
+        cerr << "DEBUG: failed to read log: raw_data" << endl;
         return -11;
-    }
-    if (!s.getline(event_data_2, LOG_EVENT_DATA_MAX_LENGTH)) {
-        cerr << "DEBUG: failed to read log: event_data_2" << endl;
-        return -12;
-    }
-    if (!s.getline(event_data_3, LOG_EVENT_DATA_MAX_LENGTH)) {
-        cerr << "DEBUG: failed to read log: event_data_3" << endl;
-        return -13;
     }
     return 0;
 }
@@ -133,17 +123,9 @@ int Log::write (ostream& s)
         cerr << "DEBUG: failed to write log: message" << endl;
         return -10;
     }
-    if (!(s << event_data_1 << endl)) {
-        cerr << "DEBUG: failed to write log: event_data_1" << endl;
+    if (!(s << raw_data << endl)) {
+        cerr << "DEBUG: failed to write log: raw_data" << endl;
         return -11;
-    }
-    if (!(s << event_data_2 << endl)) {
-        cerr << "DEBUG: failed to write log: event_data_2" << endl;
-        return -12;
-    }
-    if (!(s << event_data_3 << endl)) {
-        cerr << "DEBUG: failed to write log: event_data_3" << endl;
-        return -13;
     }
     return 0;
 }
@@ -194,6 +176,7 @@ uint16_t EventManager::autofill_log (Log* log)
     uint16_t record_id;
     struct timespec now;
     struct tm *tm;
+    char raw_data[LOG_RAW_DATA_MAX_LENGTH];
     log->logical_timestamp = next_logical_timestamp();
     record_id = next_record_id();
     if (LOG_ID_MAX_LENGTH <= snprintf(log->id, LOG_ID_MAX_LENGTH,
@@ -228,6 +211,29 @@ uint16_t EventManager::autofill_log (Log* log)
                 tm->tm_min)) {
         cerr << "DEBUG: failed to autofill log: created" << endl;
         return 0;
+    }
+    if (strlen(log->raw_data) != 5 * 16 - 1) {
+        if (LOG_RAW_DATA_MAX_LENGTH <= snprintf(raw_data,
+                    LOG_RAW_DATA_MAX_LENGTH,
+                    "0x%02X 0x%02X 0x02 0x%02X 0x%02X 0x%02X 0x%02X"
+                    " 0x41 0x00 0x04 %s",
+                    (record_id & 0xFF00) >> 8,
+                    (record_id & 0x00FF),
+                    (now.tv_sec & 0xFF000000) >> 24,
+                    (now.tv_sec & 0x00FF0000) >> 16,
+                    (now.tv_sec & 0x0000FF00) >> 8,
+                    (now.tv_sec & 0x000000FF),
+                    log->raw_data)) {
+            cerr << "DEBUG: failed to autofill log: raw_data" << endl;
+            return 0;
+        }
+        if (LOG_RAW_DATA_MAX_LENGTH <= snprintf(log->raw_data,
+                    LOG_RAW_DATA_MAX_LENGTH,
+                    "%s",
+                    raw_data)) {
+            cerr << "DEBUG: failed to autofill log: raw_data" << endl;
+            return 0;
+        }
     }
     return record_id;
 }
@@ -561,7 +567,8 @@ uint16_t EventManager::create_log (Log* log)
         }
     }
     cerr << "DEBUG: create_log: created log " << record_id << " at " <<
-        log_path(log->logical_timestamp) << endl;
+        log_path(log->logical_timestamp) << ", raw data " <<
+        log->raw_data << endl;
     return record_id;
 }
 
@@ -609,15 +616,13 @@ uint16_t message_clear_all (EventManager* em, uint8_t sensor_number)
         cerr << "DEBUG: failed to clear all logs: severity" << endl;
         return 0;
     }
-    // FIXME entry type
     if (LOG_ENTRY_TYPE_MAX_LENGTH <= snprintf(log.entry_type,
-                LOG_ENTRY_TYPE_MAX_LENGTH, "Entry Type")) {
+                LOG_ENTRY_TYPE_MAX_LENGTH, "SEL")) {
         cerr << "DEBUG: failed to clear all logs: entry_type" << endl;
         return 0;
     }
-    // FIXME entry code
     if (LOG_ENTRY_CODE_MAX_LENGTH <= snprintf(log.entry_code,
-                LOG_ENTRY_CODE_MAX_LENGTH, "Entry Code")) {
+                LOG_ENTRY_CODE_MAX_LENGTH, "Log Area Reset / Cleared")) {
         cerr << "DEBUG: failed to clear all logs: entry_code" << endl;
         return 0;
     }
@@ -632,23 +637,14 @@ uint16_t message_clear_all (EventManager* em, uint8_t sensor_number)
         return 0;
     }
     if (LOG_MESSAGE_MAX_LENGTH <= snprintf(log.message, LOG_MESSAGE_MAX_LENGTH,
-                "Event Log sensor asserted event Log Reset/Cleared")) {
+                "Event Log asserted Log Area Reset / Cleared")) {
         cerr << "DEBUG: failed to clear all logs: message" << endl;
         return 0;
     }
-    if (LOG_EVENT_DATA_MAX_LENGTH <= snprintf(log.event_data_1,
-                LOG_EVENT_DATA_MAX_LENGTH, "0x02")) {
-        cerr << "DEBUG: failed to clear all logs: event_data_1" << endl;
-        return 0;
-    }
-    if (LOG_EVENT_DATA_MAX_LENGTH <= snprintf(log.event_data_2,
-                LOG_EVENT_DATA_MAX_LENGTH, "0xFF")) {
-        cerr << "DEBUG: failed to clear all logs: event_data_2" << endl;
-        return 0;
-    }
-    if (LOG_EVENT_DATA_MAX_LENGTH <= snprintf(log.event_data_3,
-                LOG_EVENT_DATA_MAX_LENGTH, "0xFF")) {
-        cerr << "DEBUG: failed to clear all logs: event_data_3" << endl;
+    if (LOG_RAW_DATA_MAX_LENGTH <= snprintf(log.raw_data,
+                LOG_RAW_DATA_MAX_LENGTH, "0x01 0x%02X 0x6F 0x02 0xFF 0xFF",
+                sensor_number)) {
+        cerr << "DEBUG: failed to clear all logs: raw_data" << endl;
         return 0;
     }
     if (em->remove_all_logs() != 0) {

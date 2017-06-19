@@ -25,9 +25,7 @@ static void test_suite_build_log (Log* log, uint8_t event_data_1)
     strcpy(log->sensor_type, "Sensor Type");
     strcpy(log->sensor_number, "0x80");
     strcpy(log->message, "Message");
-    sprintf(log->event_data_1, "0x%02X", event_data_1);
-    strcpy(log->event_data_2, "0xFF");
-    strcpy(log->event_data_3, "0xFF");
+    sprintf(log->raw_data, "0x01 0x02 0x03 0x%02X 0xFF 0xFF", event_data_1);
 }
 
 static void test_suite_setup (void)
@@ -61,11 +59,11 @@ static void test_suite (void)
     test_suite_setup();
     EventManager em0(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 0, 0);
     assert(em0.create_log(&LOG1) == 1);
-    assert(em0.managed_size() == 104);
+    assert(em0.managed_size() == 169);
     assert(em0.managed_count() == 1);
     assert(em0.latest_record_id() == 1);
     assert(em0.create_log(&LOG2) == 2);
-    assert(em0.managed_size() == 208);
+    assert(em0.managed_size() == 338);
     assert(em0.managed_count() == 2);
     assert(em0.latest_record_id() == 2);
     assert(em0.load_log(1, &log) == 0);
@@ -79,13 +77,11 @@ static void test_suite (void)
     assert(strcmp(log.sensor_type, "Sensor Type") == 0);
     assert(strcmp(log.sensor_number, "0x80") == 0);
     assert(strcmp(log.message, "Message") == 0);
-    assert(strcmp(log.event_data_1, "0x01") == 0);
-    assert(strcmp(log.event_data_2, "0xFF") == 0);
-    assert(strcmp(log.event_data_3, "0xFF") == 0);
+    assert(strlen(log.raw_data) == 79);
 
     /* TEST: log count, record ID, and size should persist. */
     EventManager em1(LOG_DIR_PATH, LOCK_PATH, METADATA_PATH, 0, 0);
-    assert(em1.managed_size() == 208);
+    assert(em1.managed_size() == 338);
     assert(em1.managed_count() == 2);
     assert(em1.latest_record_id() == 2);
 
@@ -185,16 +181,14 @@ static void test_suite_systemd (void)
                 "create",
                 &error,
                 &res,
-                "sssssssss",
+                "sssssss",
                 "Severity",
                 "Entry Type",
                 "Entry Code",
                 "Sensor Type",
                 "0x80",
                 "Message",
-                "0xFF",
-                "0xFF",
-                "0xFF"));
+                "0x01 0x02 0x03 0x04 0x05 0x06"));
     assert(0 <= sd_bus_message_read(res, "q", &record_id_1));
     sd_bus_message_unref(res);
     assert(record_id_1 != 0);
@@ -208,16 +202,14 @@ static void test_suite_systemd (void)
                 "create",
                 &error,
                 &res,
-                "sssssssss",
+                "sssssss",
                 "Severity",
                 "Entry Type",
                 "Entry Code",
                 "Sensor Type",
                 "0x80",
                 "Message",
-                "0xFF",
-                "0xFF",
-                "0xFF"));
+                "0x01 0x02 0x03 0x04 0x05 0x06"));
     assert(0 <= sd_bus_message_read(res, "q", &record_id_1));
     sd_bus_message_unref(res);
     assert(record_id_1 != 0);
@@ -229,16 +221,14 @@ static void test_suite_systemd (void)
                 "create",
                 &error,
                 &res,
-                "sssssssss",
+                "sssssss",
                 "Severity",
                 "Entry Type",
                 "Entry Code",
                 "Sensor Type",
                 "0x80",
                 "Message",
-                "0xFF",
-                "0xFF",
-                "0xFF"));
+                "0x01 0x02 0x03 0x04 0x05 0x06"));
     assert(0 <= sd_bus_message_read(res, "q", &record_id_2));
     sd_bus_message_unref(res);
     assert(record_id_2 != 0);
@@ -263,16 +253,14 @@ static void test_suite_systemd (void)
                 "create",
                 &error,
                 &res,
-                "sssssssss",
+                "sssssss",
                 "Severity",
                 "Entry Type",
                 "Entry Code",
                 "Sensor Type",
                 "0x80",
                 "Message",
-                "0xFF",
-                "0xFF",
-                "0xFF"));
+                "0x01 0x02 0x03 0x04 0x05 0x06"));
     assert(0 <= sd_bus_message_read(res, "q", &record_id_1));
     sd_bus_message_unref(res);
     assert(record_id_1 != 0);
@@ -284,16 +272,14 @@ static void test_suite_systemd (void)
                 "create",
                 &error,
                 &res,
-                "sssssssss",
+                "sssssss",
                 "Severity",
                 "Entry Type",
                 "Entry Code",
                 "Sensor Type",
                 "0x80",
                 "Message",
-                "0xFF",
-                "0xFF",
-                "0xFF"));
+                "0x01 0x02 0x03 0x04 0x05 0x06"));
     assert(0 <= sd_bus_message_read(res, "q", &record_id_2));
     sd_bus_message_unref(res);
     assert(record_id_2 != 0);

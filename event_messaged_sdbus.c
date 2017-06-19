@@ -69,16 +69,8 @@ static int method_create (
                     LOG_MESSAGE_MAX_LENGTH, log.message)) != 0) {
         return err;
     }
-    if ((err = method_create__read_string("event_data_1", bm,
-                    LOG_EVENT_DATA_MAX_LENGTH, log.event_data_1)) != 0) {
-        return err;
-    }
-    if ((err = method_create__read_string("event_data_2", bm,
-                    LOG_EVENT_DATA_MAX_LENGTH, log.event_data_2)) != 0) {
-        return err;
-    }
-    if ((err = method_create__read_string("event_data_3", bm,
-                    LOG_EVENT_DATA_MAX_LENGTH, log.event_data_3)) != 0) {
+    if ((err = method_create__read_string("raw_data", bm,
+                    LOG_RAW_DATA_MAX_LENGTH, log.raw_data)) != 0) {
         return err;
     }
     if ((record_id = message_create(sEventManager, &log)) != 0) {
@@ -177,7 +169,7 @@ static int method_get_rollover_count (
 
 static const sd_bus_vtable TABLE_EVENT[] = {
     SD_BUS_VTABLE_START(0),
-    SD_BUS_METHOD("create", "sssssssss", "q",
+    SD_BUS_METHOD("create", "sssssss", "q",
             method_create, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("clear", "y", "q",
             method_clear, SD_BUS_VTABLE_UNPRIVILEGED),
