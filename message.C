@@ -642,7 +642,7 @@ uint16_t message_clear_all (EventManager* em, uint8_t sensor_number)
         return 0;
     }
     if (LOG_RAW_DATA_MAX_LENGTH <= snprintf(log.raw_data,
-                LOG_RAW_DATA_MAX_LENGTH, "0x01 0x%02X 0x6F 0x02 0xFF 0xFF",
+                LOG_RAW_DATA_MAX_LENGTH, "0x10 0x%02X 0x6F 0x02 0xFF 0xFF",
                 sensor_number)) {
         cerr << "DEBUG: failed to clear all logs: raw_data" << endl;
         return 0;
