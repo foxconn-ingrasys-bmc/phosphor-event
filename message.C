@@ -216,7 +216,7 @@ uint16_t EventManager::autofill_log (Log* log)
         if (LOG_RAW_DATA_MAX_LENGTH <= snprintf(raw_data,
                     LOG_RAW_DATA_MAX_LENGTH,
                     "0x%02X 0x%02X 0x02 0x%02X 0x%02X 0x%02X 0x%02X"
-                    " 0x41 0x00 0x04 %s",
+                    " 0x20 0x00 0x04 %s",
                     (record_id & 0xFF00) >> 8,
                     (record_id & 0x00FF),
                     (now.tv_sec & 0xFF000000) >> 24,
