@@ -51,13 +51,13 @@ static void message_entry_new(messageEntry_t **m, uint16_t logid, event_manager 
 	*m          = malloc(sizeof(messageEntry_t));
 	(*m)->logid = logid;
 	(*m)->em    = em;
+	
 	return;
 }
 
 // After calling this function the gCachedRec will be set
 static event_record_t* message_record_open(event_manager *em, uint16_t logid)
 {
-
 	int r = 0;
 	event_record_t *rec;
 
@@ -205,7 +205,6 @@ static int prop_message_dd(sd_bus *bus,
 		       void *userdata,
 		       sd_bus_error *error)
 {
-
 	event_record_t *rec;
 	messageEntry_t *m = (messageEntry_t*) userdata;
 
@@ -263,7 +262,7 @@ static int accept_message(sd_bus_message *m,
 	rec.reportedby  = reportedby;
 	rec.p           = (uint8_t*) p;
 	rec.n           = n;
-
+	
 	syslog(LOG_NOTICE, "%s %s (%s)", rec.severity, rec.message, rec.association);
 
 	logid = message_create_new_log_event(em, &rec);
@@ -324,7 +323,7 @@ static int method_clearall(sd_bus_message *m, void *userdata, sd_bus_error *ret_
 {
 	event_manager *em = (event_manager *) userdata;
 	uint16_t logid;
-	char buffer[32];
+	char buffer[64];
 	int r;
 
 	message_refresh_events(em);
@@ -342,6 +341,7 @@ static int method_clearall(sd_bus_message *m, void *userdata, sd_bus_error *ret_
 					     finish_delete_log,
 					     NULL,
 					     NULL);
+
 		if (r < 0) {
 			fprintf(stderr,
 				"sd_bus_call_method_async Failed : %s\n",
@@ -400,7 +400,7 @@ static const sd_bus_vtable recordlog_association_vtable[] = {
 static int remove_log_from_dbus(messageEntry_t *p)
 {
 	int r;
-	char buffer[32];
+	char buffer[64];
 
 	snprintf(buffer, sizeof(buffer), "%s/%zu", event_path, p->logid);
 
@@ -429,9 +429,9 @@ int send_log_to_dbus(event_manager *em, const uint16_t logid, const char *associ
 	messageEntry_t *m;
 
 	snprintf(loglocation, sizeof(loglocation), "%s/%d", event_path, logid);
-
+	
 	message_entry_new(&m, logid, em);
-
+	
 	r = sd_bus_add_object_vtable(bus,
 				     &m->messageslot,
 				     loglocation,
@@ -515,7 +515,6 @@ int start_event_monitor(void)
 /* Only thing we are doing in this function is to get a connection on the dbus */
 int build_bus(event_manager *em)
 {
-
 	int r = 0;
 
 	/* Connect to the system bus */

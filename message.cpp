@@ -43,7 +43,6 @@ event_manager::event_manager(string path, size_t reqmaxsize, uint16_t reqmaxlogs
 	maxsize = -1;
 	maxlogs = -1;
 	currentsize = get_managed_size();
-
 	if (reqmaxsize)
 		maxsize = reqmaxsize;
 
@@ -117,6 +116,10 @@ uint16_t event_manager::latest_log_id(void)
 }
 uint16_t event_manager::new_log_id(void)
 {
+	if (latestid >= maxlogs) {
+		latestid = 0;
+		logcount = 128;
+	}
 	return ++latestid;
 }
 void event_manager::next_log_refresh(void)
@@ -236,7 +239,7 @@ uint16_t event_manager::create_log_event(event_record_t *rec)
 	std::ostringstream buffer;
 	ofstream myfile;
 	logheader_t hdr = {0};
-	size_t event_size=0;
+	size_t event_size = 0;
 
 	buffer << eventpath << "/" << int(rec->logid) ;
 
@@ -257,18 +260,38 @@ uint16_t event_manager::create_log_event(event_record_t *rec)
 			hdr.associationlen + \
 			hdr.reportedbylen  + \
 			hdr.debugdatalen;
+	
+	currentsize += event_size;
+	myfile.open(buffer.str() , ios::out | ios::trunc | ios::binary );
+	myfile.write((char*) &hdr, sizeof(hdr));
+	myfile.write((char*) rec->message, hdr.messagelen);
+	myfile.write((char*) rec->severity, hdr.severitylen);
+	myfile.write((char*) rec->association, hdr.associationlen);
+	myfile.write((char*) rec->reportedby, hdr.reportedbylen);
+	myfile.write((char*) rec->p, hdr.debugdatalen);
+	myfile.close();
 
+	if (is_logid_a_log(rec->logid)) {
+		logcount++;
+		if (logcount >= maxlogs) logcount = maxlogs;
+	} 
+	else {
+		cout << "Warning: Event not logged, failed to store data" << endl;
+		rec->logid = 0;
+	}	
+	
+/*	-----------------------------------------------------------
 	if((event_size + currentsize)  >= maxsize) {
 		syslog(LOG_ERR, "event logger reached maximum capacity, event not logged");
 		rec->logid = 0;
-
-	} else if (logcount >= maxlogs) {
+	} 
+	else if (logcount >= maxlogs) {
 		syslog(LOG_ERR, "event logger reached maximum log events, event not logged");
 		rec->logid = 0;
-
-	} else {
+	} 
+	else {
 		currentsize += event_size;
-		myfile.open(buffer.str() , ios::out|ios::binary);
+		myfile.open(buffer.str() , ios::binary );
 		myfile.write((char*) &hdr, sizeof(hdr));
 		myfile.write((char*) rec->message, hdr.messagelen);
 		myfile.write((char*) rec->severity, hdr.severitylen);
@@ -279,12 +302,13 @@ uint16_t event_manager::create_log_event(event_record_t *rec)
 
 		if (is_logid_a_log(rec->logid)) {
 			logcount++;
-		} else {
+		} 
+		else {
 			cout << "Warning: Event not logged, failed to store data" << endl;
 			rec->logid = 0;
 		}
 	}
-
+	----------------------------------------------------------- */
 	return rec->logid;
 }
 
@@ -364,8 +388,9 @@ int event_manager::remove(uint16_t logid)
 	else
 		currentsize -= event_size;
 
-	if (logcount > 0)
+	if (logcount > 0) {
 		logcount--;
-
+		if (logcount == 0) latestid = 0;
+	}
 	return 0;
 }
