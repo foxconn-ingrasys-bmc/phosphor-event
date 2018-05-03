@@ -182,7 +182,7 @@ static int prop_message(sd_bus *bus,
 		p = rec->reportedby;
 	} else if (!strncmp("time", property, 4)) {
 		tm_info = localtime(&rec->timestamp);
-		strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
 		p = buffer;
 	} else {
 		p = "";
